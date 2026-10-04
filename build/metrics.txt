@@ -1,0 +1,41 @@
+# HELP ps5_shadowmount_up Whether the ShadowMountPlus API answered.
+# TYPE ps5_shadowmount_up gauge
+ps5_shadowmount_up 1
+# HELP ps5_shadowmount_info ShadowMountPlus version.
+# TYPE ps5_shadowmount_info gauge
+ps5_shadowmount_info{version="1.7"} 1
+# HELP ps5_shadowmount_storage_total_bytes Filesystem size as reported by ShadowMount.
+# TYPE ps5_shadowmount_storage_total_bytes gauge
+ps5_shadowmount_storage_total_bytes{mount_point="/mnt/ext1",source="/dev/da0",filesystem="bfs"} 1000184545280
+ps5_shadowmount_storage_total_bytes{mount_point="/user",source="/dev/x",filesystem="ufs"} 100
+# HELP ps5_shadowmount_storage_available_bytes Space available for new files.
+# TYPE ps5_shadowmount_storage_available_bytes gauge
+ps5_shadowmount_storage_available_bytes{mount_point="/mnt/ext1",source="/dev/da0",filesystem="bfs"} 923826782208
+ps5_shadowmount_storage_available_bytes{mount_point="/user",source="/dev/x",filesystem="ufs"} 40
+# HELP ps5_shadowmount_storage_used_bytes Used space.
+# TYPE ps5_shadowmount_storage_used_bytes gauge
+ps5_shadowmount_storage_used_bytes{mount_point="/mnt/ext1",source="/dev/da0",filesystem="bfs"} 76357763072
+ps5_shadowmount_storage_used_bytes{mount_point="/user",source="/dev/x",filesystem="ufs"} 60
+# HELP ps5_shadowmount_storage_read_only Filesystem mounted read-only.
+# TYPE ps5_shadowmount_storage_read_only gauge
+ps5_shadowmount_storage_read_only{mount_point="/mnt/ext1",source="/dev/da0",filesystem="bfs"} 0
+ps5_shadowmount_storage_read_only{mount_point="/user",source="/dev/x",filesystem="ufs"} 1
+# HELP ps5_shadowmount_games Games known to ShadowMount.
+# TYPE ps5_shadowmount_games gauge
+ps5_shadowmount_games 2
+# HELP ps5_shadowmount_game_info Game metadata.
+# TYPE ps5_shadowmount_game_info gauge
+ps5_shadowmount_game_info{title_id="PPSA01153",name="OliSe \"Player\"",platform="ps5",source_type="folder"} 1
+ps5_shadowmount_game_info{title_id="PPSA25646",name="Game, {with} braces",platform="ps5",source_type="image"} 1
+# HELP ps5_shadowmount_game_mounted Game runtime mount active (1 while the game runs).
+# TYPE ps5_shadowmount_game_mounted gauge
+ps5_shadowmount_game_mounted{title_id="PPSA01153"} 1
+ps5_shadowmount_game_mounted{title_id="PPSA25646"} 0
+# HELP ps5_shadowmount_game_installed Game registered on the home screen.
+# TYPE ps5_shadowmount_game_installed gauge
+ps5_shadowmount_game_installed{title_id="PPSA01153"} 1
+ps5_shadowmount_game_installed{title_id="PPSA25646"} 1
+# HELP ps5_shadowmount_game_source_available Game source (folder or image) reachable.
+# TYPE ps5_shadowmount_game_source_available gauge
+ps5_shadowmount_game_source_available{title_id="PPSA01153"} 1
+ps5_shadowmount_game_source_available{title_id="PPSA25646"} 0
