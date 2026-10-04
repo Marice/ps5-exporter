@@ -9,7 +9,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - Prometheus exporter payload serving `/metrics` on port 9100.
 - Temperatures (CPU, SoC sensors), CPU frequency, uptime, boot time, model
-  and system version, memory, filesystems, network counters, process count.
+  and system version, filesystems, process count.
 - ShadowMountPlus integration over its local JSON API: version, storage
   overview, game list with mounted/installed/source state.
-- `/health` endpoint and a start-up notification with the port.
+- `/health` and `/quit` endpoints, a start-up notification with the port,
+  and the port configurable by argument or `EXPORTER_PORT`.

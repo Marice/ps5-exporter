@@ -41,7 +41,7 @@ static const char* status_text(int code)
 	}
 }
 
-int http_serve(int port, http_handler_t handler)
+int http_serve(int port, http_handler_t handler, volatile int* stop)
 {
 	int srv = socket(AF_INET, SOCK_STREAM, 0);
 	if (srv < 0) return -1;
@@ -104,6 +104,10 @@ int http_serve(int port, http_handler_t handler)
 		                    code, status_text(code), ctype, blen);
 		if (send_all(fd, header, (size_t)hlen) == 0 && strcmp(method, "HEAD") != 0) send_all(fd, body, blen);
 		close(fd);
+		if (stop && *stop) {
+			close(srv);
+			return 0;
+		}
 	}
 }
 

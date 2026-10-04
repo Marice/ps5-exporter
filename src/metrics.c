@@ -61,29 +61,6 @@ static size_t uptime(char* out, size_t cap)
 	return len;
 }
 
-static size_t memory(char* out, size_t cap)
-{
-	size_t len = 0;
-	unsigned long physmem = 0, usermem = 0;
-	size_t sz = sizeof(physmem);
-	if (sysctlbyname("hw.physmem", &physmem, &sz, NULL, 0) == 0 && physmem) {
-		APPEND("# HELP ps5_memory_physical_bytes Physical memory reported by hw.physmem.\n# TYPE ps5_memory_physical_bytes gauge\nps5_memory_physical_bytes %lu\n", physmem);
-	}
-	sz = sizeof(usermem);
-	if (sysctlbyname("hw.usermem", &usermem, &sz, NULL, 0) == 0 && usermem) {
-		APPEND("# HELP ps5_memory_user_bytes Memory available to user processes (hw.usermem).\n# TYPE ps5_memory_user_bytes gauge\nps5_memory_user_bytes %lu\n", usermem);
-	}
-	unsigned int pages = 0;
-	sz = sizeof(pages);
-	if (sysctlbyname("vm.stats.vm.v_free_count", &pages, &sz, NULL, 0) == 0) {
-		unsigned long pagesize = 0;
-		size_t psz = sizeof(pagesize);
-		if (sysctlbyname("hw.pagesize", &pagesize, &psz, NULL, 0) != 0 || !pagesize) pagesize = 16384;
-		APPEND("# HELP ps5_memory_free_bytes Free pages times page size (vm.stats.vm.v_free_count).\n# TYPE ps5_memory_free_bytes gauge\nps5_memory_free_bytes %lu\n", (unsigned long)pages * pagesize);
-	}
-	return len;
-}
-
 static size_t filesystems(char* out, size_t cap)
 {
 	size_t len = 0;
@@ -111,8 +88,15 @@ static size_t filesystems(char* out, size_t cap)
 	return len;
 }
 
+/* The if_data layout the SDK headers describe does not match what the PS5
+   kernel hands out (counters come out as small numbers), so these are only
+   built with -DEXPORTER_NETWORK until the layout is confirmed. */
 static size_t network(char* out, size_t cap)
 {
+#ifndef EXPORTER_NETWORK
+	(void)out; (void)cap;
+	return 0;
+#else
 	size_t len = 0;
 	struct ifaddrs* list = NULL;
 	if (getifaddrs(&list) != 0) return 0;
@@ -131,6 +115,7 @@ static size_t network(char* out, size_t cap)
 	}
 	freeifaddrs(list);
 	return len;
+#endif
 }
 
 static size_t processes(char* out, size_t cap)
@@ -174,7 +159,6 @@ size_t metrics_system(char* out, size_t cap)
 	len += info(out + len, cap - len);
 	len += temperatures(out + len, cap - len);
 	len += uptime(out + len, cap - len);
-	len += memory(out + len, cap - len);
 	len += filesystems(out + len, cap - len);
 	len += network(out + len, cap - len);
 	len += processes(out + len, cap - len);

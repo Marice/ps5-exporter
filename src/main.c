@@ -7,6 +7,7 @@
  */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -33,6 +34,7 @@ static void notify(const char* text)
 }
 
 static unsigned long g_scrapes = 0;
+static volatile int g_quit = 0;
 
 static int handle(const char* path, char* body, size_t cap)
 {
@@ -53,6 +55,13 @@ static int handle(const char* path, char* body, size_t cap)
 		snprintf(body, cap, "ok\n");
 		return 200;
 	}
+	if (strcmp(path, "/quit") == 0) {
+		/* Lets a newer build take over the port without a console reboot.
+		   Read-only otherwise, and LAN only, so this is acceptable. */
+		snprintf(body, cap, "bye\n");
+		g_quit = 1;
+		return 200;
+	}
 	if (strcmp(path, "/") == 0) {
 		snprintf(body, cap,
 		         "ps5-exporter %s\n\nGET /metrics  Prometheus metrics\nGET /health   liveness check\n",
@@ -63,17 +72,33 @@ static int handle(const char* path, char* body, size_t cap)
 	return 404;
 }
 
-int main(void)
+static int g_port = EXPORTER_PORT;
+
+int main(int argc, char** argv)
 {
+	/* Optional port: first argument or EXPORTER_PORT in the environment
+	   (handy to run a test build next to the autoloaded one). */
+	const char* env_port = getenv("EXPORTER_PORT");
+	if (env_port && atoi(env_port) > 0) g_port = atoi(env_port);
+	/* Loaders differ in whether argv[0] is the program or the first user
+	   argument (websrv passes the args string as the whole argv), so any
+	   purely numeric argument counts. */
+	for (int i = 0; i < argc; i++) {
+		int p = atoi(argv[i]);
+		if (p > 0 && p < 65536 && strspn(argv[i], "0123456789") == strlen(argv[i])) g_port = p;
+	}
 	char msg[128];
-	snprintf(msg, sizeof(msg), "ps5-exporter %s: metrics on port %d", EXPORTER_VERSION, EXPORTER_PORT);
+	snprintf(msg, sizeof(msg), "ps5-exporter %s: metrics on port %d", EXPORTER_VERSION, g_port);
 	fprintf(stderr, "%s\n", msg);
 	notify(msg);
 	/* Serve forever; retry the bind if the port is briefly still in use
 	   after a previous instance (payload reloads). */
 	for (;;) {
-		if (http_serve(EXPORTER_PORT, handle) < 0) {
-			fprintf(stderr, "ps5-exporter: bind/listen on %d failed, retrying\n", EXPORTER_PORT);
+		if (http_serve(g_port, handle, &g_quit) == 0) {
+			fprintf(stderr, "ps5-exporter: quit requested\n");
+			return 0;
+		} else {
+			fprintf(stderr, "ps5-exporter: bind/listen on %d failed, retrying\n", g_port);
 			sleep(5);
 		}
 	}

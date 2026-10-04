@@ -8,8 +8,7 @@ What it reports:
 
 - CPU and SoC temperatures and the CPU frequency
 - uptime and boot time, model and system software version
-- memory, filesystems (size and free space per mount), network bytes per
-  interface, number of processes
+- filesystems (size and free space per mount) and the number of processes
 - from ShadowMountPlus, when it runs: its version, storage overview, the
   game list with per-title `mounted` (1 while a game runs), `installed` and
   `source_available`
@@ -32,6 +31,11 @@ A notification confirms the port when it starts. Check with:
 curl http://<ps5-ip>:9100/metrics
 ```
 
+Another port: pass it as an argument or as `EXPORTER_PORT` in the
+environment (websrv: `/elfldr?elf=/data/pldmgr/payloads/ps5-exporter/ps5-exporter.elf&env=EXPORTER_PORT%3D9101`).
+`GET /quit` stops the exporter so a newer build can take the port without a
+reboot; it changes nothing else.
+
 ## Prometheus
 
 ```yaml
@@ -53,9 +57,7 @@ marks the target down; the series simply have gaps.
 | `ps5_cpu_frequency_hertz` | | CPU frequency |
 | `ps5_uptime_seconds`, `ps5_boot_time_seconds` | | Uptime and boot time |
 | `ps5_info` | `model`, `system_version` | Console model and firmware |
-| `ps5_memory_physical_bytes`, `ps5_memory_user_bytes`, `ps5_memory_free_bytes` | | Memory |
 | `ps5_filesystem_size_bytes`, `ps5_filesystem_avail_bytes` | `mountpoint`, `fstype` | Mounted filesystems |
-| `ps5_network_receive_bytes_total`, `ps5_network_transmit_bytes_total` | `device` | Interface counters |
 | `ps5_processes` | | Number of processes |
 | `ps5_shadowmount_up`, `ps5_shadowmount_info` | `version` | ShadowMountPlus reachable and its version |
 | `ps5_shadowmount_storage_*_bytes` | `mount_point`, `source`, `filesystem` | Storage as ShadowMount sees it |
@@ -85,10 +87,19 @@ and the libkernel temperature calls the SDK's `hwinfo` sample uses.
 
 ## Not yet
 
-CPU and GPU load, FPS and fan speed. etaHEN shows these in its overlay, but
-they come from kernel memory with firmware-specific offsets. The fan duty
-(`sceKernelGetCurrentFanDuty`) exists in `libkernel_sys`; it will be added
-once it is verified from a payload.
+- CPU and GPU load, FPS and fan speed. etaHEN shows these in its overlay,
+  but they come from kernel memory with firmware-specific offsets. The fan
+  duty (`sceKernelGetCurrentFanDuty`) exists in `libkernel_sys`; it will be
+  added once it is verified from a payload.
+- Memory: the `hw.physmem` and `hw.usermem` sysctls are refused for
+  payloads on 13.60.
+- Network counters: `getifaddrs` works, but the `if_data` layout in the SDK
+  headers does not match what the kernel returns (the numbers come out far
+  too small). The code is there behind `-DEXPORTER_NETWORK` for whoever
+  wants to pin down the layout.
+
+`system_version` is the string `sceKernelGetSystemSwVersion` returns
+("13.590.001" on a console that shows 13.60 in its settings).
 
 ## License
 

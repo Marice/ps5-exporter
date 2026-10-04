@@ -8,8 +8,9 @@
    HTTP status code. path is the request target without query string. */
 typedef int (*http_handler_t)(const char* path, char* body, size_t body_cap);
 
-/* Serve forever on 0.0.0.0:port. Returns only on a fatal socket error. */
-int http_serve(int port, http_handler_t handler);
+/* Serve on 0.0.0.0:port until *stop becomes non-zero (checked after each
+   request). Returns 0 then, or a negative value on a fatal socket error. */
+int http_serve(int port, http_handler_t handler, volatile int* stop);
 
 /* POST json to http://host:port/path, store the response body (NUL-terminated)
    in out. Returns the HTTP status, or a negative value on connection errors. */

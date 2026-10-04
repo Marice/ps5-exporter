@@ -9,4 +9,4 @@ static int handle(const char* path, char* body, size_t cap)
 	if (strcmp(path, "/metrics") == 0) { size_t n = metrics_shadowmount(body, cap); body[n] = 0; return 200; }
 	snprintf(body, cap, "not found\n"); return 404;
 }
-int main(void) { return http_serve(19100, handle); }
+int main(void) { return http_serve(19100, handle, 0); }
