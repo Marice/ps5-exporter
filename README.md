@@ -49,6 +49,15 @@ scrape_configs:
 When the console is off or in rest mode the scrape fails and Prometheus
 marks the target down; the series simply have gaps.
 
+## Grafana
+
+`grafana/ps5-exporter.json` is a ready-made dashboard: console on/off, CPU
+gauge, uptime, firmware and model, what is playing, temperature history
+with the running games drawn underneath, storage usage, the ShadowMount
+game library as a table, CPU frequency, processes and the exporter itself.
+Import it in Grafana (Dashboards, New, Import), pick your Prometheus data
+source, and select the scrape job (`ps5` by default).
+
 ## Metrics
 
 | Metric | Labels | Meaning |
