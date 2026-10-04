@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [v0.1.1] - 2026-10-04
+
 ### Added
 - Grafana dashboard (`grafana/ps5-exporter.json`).
 - `ps5_info` gets a `firmware` label from the kernel version; `system_version`

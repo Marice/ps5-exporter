@@ -15,7 +15,7 @@
 #include "metrics.h"
 #include "shadowmount.h"
 
-#define EXPORTER_VERSION "0.1.0"
+#define EXPORTER_VERSION "0.1.1"
 #define EXPORTER_PORT 9100
 
 int sceKernelSendNotificationRequest(uint32_t device, void* request, size_t size, int blocking);
