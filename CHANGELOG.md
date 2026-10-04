@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [v0.1.0] - 2026-10-04
+
 ### Added
 - Prometheus exporter payload serving `/metrics` on port 9100.
 - Temperatures (CPU, SoC sensors), CPU frequency, uptime, boot time, model
