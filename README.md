@@ -65,7 +65,7 @@ source, and select the scrape job (`ps5` by default).
 | `ps5_temperature_celsius` | `sensor` (cpu, soc0..3) | Temperatures the console reports |
 | `ps5_cpu_frequency_hertz` | | CPU frequency |
 | `ps5_uptime_seconds`, `ps5_boot_time_seconds` | | Uptime and boot time |
-| `ps5_info` | `model`, `system_version` | Console model and firmware |
+| `ps5_info` | `model`, `firmware`, `system_version` | Model, the kernel's firmware version (`13.60`) and the version the system API reports |
 | `ps5_filesystem_size_bytes`, `ps5_filesystem_avail_bytes` | `mountpoint`, `fstype` | Mounted filesystems |
 | `ps5_processes` | | Number of processes |
 | `ps5_shadowmount_up`, `ps5_shadowmount_info` | `version` | ShadowMountPlus reachable and its version |
@@ -107,8 +107,10 @@ and the libkernel temperature calls the SDK's `hwinfo` sample uses.
   too small). The code is there behind `-DEXPORTER_NETWORK` for whoever
   wants to pin down the layout.
 
-`system_version` is the string `sceKernelGetSystemSwVersion` returns
-("13.590.001" on a console that shows 13.60 in its settings).
+`firmware` comes from the kernel (`kernel_get_fw_version`, 0x13600007 is
+13.60). `system_version` is what `sceKernelGetSystemSwVersion` reports to
+applications; a jailbreak chain can spoof that lower (13.590.001 here) to
+keep update prompts away, so the two can differ.
 
 ## License
 

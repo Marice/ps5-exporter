@@ -12,6 +12,8 @@
 #include <sys/user.h>
 #include <time.h>
 
+#include <ps5/kernel.h>
+
 /* libkernel exports used by the SDK's hwinfo sample. */
 int sceKernelGetCpuTemperature(int* celsius);
 int sceKernelGetSocSensorTemperature(int sensor, int* celsius);
@@ -149,7 +151,13 @@ static size_t info(char* out, size_t cap)
 	}
 	char ver_esc[64];
 	escape_label(version, ver_esc, sizeof(ver_esc));
-	APPEND("# HELP ps5_info Console model and system software version.\n# TYPE ps5_info gauge\nps5_info{model=\"%s\",system_version=\"%s\"} 1\n", model_esc, ver_esc);
+	/* The kernel's own firmware version is packed BCD (0x13600007 = 13.60,
+	   revision 7). The user-space API above can report a lower version:
+	   jailbreak chains spoof it to keep update prompts away. Report both. */
+	uint32_t fw = kernel_get_fw_version();
+	char firmware[16];
+	snprintf(firmware, sizeof(firmware), "%x.%02x", (fw >> 24) & 0xff, (fw >> 16) & 0xff);
+	APPEND("# HELP ps5_info Console model, kernel firmware version and the version the system reports.\n# TYPE ps5_info gauge\nps5_info{model=\"%s\",firmware=\"%s\",system_version=\"%s\"} 1\n", model_esc, firmware, ver_esc);
 	return len;
 }
 
