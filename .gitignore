@@ -1,3 +1,4 @@
 /ps5-exporter.elf
 *.o
 /dist/
+/ps5-exporter-probe.elf

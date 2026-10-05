@@ -13,8 +13,18 @@ include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
 # (the SDK hwinfo sample links it too); it provides the model name.
 CFLAGS := -Wall -Wextra -O2 -std=c11 -lkernel_sys
 
-$(ELF): src/main.c src/http.c src/metrics.c src/shadowmount.c src/*.h
-	$(CC) $(CFLAGS) -o $@ src/main.c src/http.c src/metrics.c src/shadowmount.c
+SRCS := src/main.c src/http.c src/metrics.c src/shadowmount.c
+
+$(ELF): $(SRCS) src/*.h
+	$(CC) $(CFLAGS) -o $@ $(SRCS)
+
+# Development build with the /probe/<name> endpoint (undocumented API probing).
+probe: $(TITLE)-probe.elf
+$(TITLE)-probe.elf: $(SRCS) src/probe.c src/*.h
+	$(CC) $(CFLAGS) -DEXPORTER_PROBE -o $@ $(SRCS) src/probe.c
+
+upload-probe: $(TITLE)-probe.elf
+	curl -sS -f --ftp-create-dirs -T $(TITLE)-probe.elf "ftp://$(PS5_HOST):1337/data/pldmgr/payloads/$(TITLE)/$(TITLE)-probe.elf" && echo "probe uploaded"
 
 # Send to a console running elfldr on PS5_PORT (not available with the
 # localhost-only autoloader elfldr; use Payload Manager then).
@@ -29,6 +39,6 @@ dist: $(ELF)
 	mkdir -p dist && cp $(ELF) dist/
 
 clean:
-	rm -rf $(ELF) *.o dist
+	rm -rf $(ELF) $(TITLE)-probe.elf *.o dist
 
-.PHONY: test upload dist clean
+.PHONY: test upload probe upload-probe dist clean

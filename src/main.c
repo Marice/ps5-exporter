@@ -14,6 +14,9 @@
 #include "http.h"
 #include "metrics.h"
 #include "shadowmount.h"
+#ifdef EXPORTER_PROBE
+#include "probe.h"
+#endif
 
 #define EXPORTER_VERSION "0.1.1"
 #define EXPORTER_PORT 9100
@@ -62,6 +65,13 @@ static int handle(const char* path, char* body, size_t cap)
 		g_quit = 1;
 		return 200;
 	}
+#ifdef EXPORTER_PROBE
+	if (strncmp(path, "/probe/", 7) == 0) {
+		size_t n = probe_run(path + 7, body, cap);
+		body[n < cap ? n : cap - 1] = 0;
+		return 200;
+	}
+#endif
 	if (strcmp(path, "/") == 0) {
 		snprintf(body, cap,
 		         "ps5-exporter %s\n\nGET /metrics  Prometheus metrics\nGET /health   liveness check\n",
