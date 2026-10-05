@@ -2,6 +2,8 @@
    offsets, so these keep working across firmware versions. */
 #include "metrics.h"
 
+#include <sys/types.h>
+#include <sys/param.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <stdio.h>
@@ -20,6 +22,8 @@ int sceKernelGetSocSensorTemperature(int sensor, int* celsius);
 long sceKernelGetCpuFrequency(void);
 int sceKernelGetHwModelName(char* out);
 int sceKernelGetSystemSwVersion(void* out);
+size_t sceKernelGetDirectMemorySize(void);
+int sceKernelAvailableDirectMemorySize(int64_t start, int64_t end, size_t align, int64_t* out_start, size_t* out_size);
 
 #define APPEND(...) do { int n_ = snprintf(out + len, cap > len ? cap - len : 0, __VA_ARGS__); if (n_ > 0) len += (size_t)n_; } while (0)
 
@@ -41,8 +45,11 @@ static size_t temperatures(char* out, size_t cap)
 	int t = 0;
 	APPEND("# HELP ps5_temperature_celsius Temperature reported by the console.\n# TYPE ps5_temperature_celsius gauge\n");
 	if (sceKernelGetCpuTemperature(&t) == 0) APPEND("ps5_temperature_celsius{sensor=\"cpu\"} %d\n", t);
-	for (int s = 0; s < 4; s++) {
-		if (sceKernelGetSocSensorTemperature(s, &t) == 0) APPEND("ps5_temperature_celsius{sensor=\"soc%d\"} %d\n", s, t);
+	/* Report every SoC sensor index the kernel answers for (0..15); the
+	   console has more than the four the SDK sample shows. */
+	for (int s = 0; s < 16; s++) {
+		t = -1000;
+		if (sceKernelGetSocSensorTemperature(s, &t) == 0 && t > -100 && t < 200) APPEND("ps5_temperature_celsius{sensor=\"soc%d\"} %d\n", s, t);
 	}
 	long hz = sceKernelGetCpuFrequency();
 	if (hz > 0) APPEND("# HELP ps5_cpu_frequency_hertz CPU frequency.\n# TYPE ps5_cpu_frequency_hertz gauge\nps5_cpu_frequency_hertz %ld\n", hz);
@@ -59,6 +66,23 @@ static size_t uptime(char* out, size_t cap)
 		time_t now = time(NULL);
 		APPEND("# HELP ps5_boot_time_seconds Unix time of the last boot.\n# TYPE ps5_boot_time_seconds gauge\nps5_boot_time_seconds %ld\n", (long)boot.tv_sec);
 		APPEND("# HELP ps5_uptime_seconds Seconds since boot.\n# TYPE ps5_uptime_seconds gauge\nps5_uptime_seconds %ld\n", (long)(now - boot.tv_sec));
+	}
+	return len;
+}
+
+/* Direct memory is the pool games and the GPU allocate from. The kernel
+   tells its size and the largest free block; the latter is a lower bound
+   for what is really free, so it is named that way. */
+static size_t direct_memory(char* out, size_t cap)
+{
+	size_t len = 0;
+	size_t total = sceKernelGetDirectMemorySize();
+	if (total == 0 || total == (size_t)-1) return 0;
+	APPEND("# HELP ps5_direct_memory_bytes Size of the direct memory pool (games, GPU).\n# TYPE ps5_direct_memory_bytes gauge\nps5_direct_memory_bytes %zu\n", total);
+	int64_t start = 0;
+	size_t largest = 0;
+	if (sceKernelAvailableDirectMemorySize(0, (int64_t)total, 0, &start, &largest) == 0) {
+		APPEND("# HELP ps5_direct_memory_largest_free_bytes Largest free block of direct memory (lower bound of free direct memory).\n# TYPE ps5_direct_memory_largest_free_bytes gauge\nps5_direct_memory_largest_free_bytes %zu\n", largest);
 	}
 	return len;
 }
@@ -120,15 +144,42 @@ static size_t network(char* out, size_t cap)
 #endif
 }
 
+static int printable_name(const char* s, size_t n)
+{
+	size_t i = 0;
+	for (; i < n && s[i]; i++) if ((unsigned char)s[i] < 32 || (unsigned char)s[i] > 126) return 0;
+	return i > 0;
+}
+
+/* kern.proc gives fixed-size kinfo_proc records: process count, and per
+   process its CPU time and resident memory. The record layout is checked
+   against ki_structsize so a kernel with a different layout yields only
+   the count. */
 static size_t processes(char* out, size_t cap)
 {
 	size_t len = 0;
 	int mib[3] = { CTL_KERN, KERN_PROC, KERN_PROC_PROC };
-	size_t sz = 0;
-	if (sysctl(mib, 3, NULL, &sz, NULL, 0) == 0 && sz > 0) {
-		/* kinfo_proc records are fixed size (kern.proc returns an array). */
-		unsigned long count = sz / sizeof(struct kinfo_proc);
-		APPEND("# HELP ps5_processes Number of processes.\n# TYPE ps5_processes gauge\nps5_processes %lu\n", count);
+	static unsigned char buf[512 * 1024];
+	size_t sz = sizeof(buf);
+	if (sysctl(mib, 3, buf, &sz, NULL, 0) != 0 || sz < sizeof(struct kinfo_proc)) return 0;
+	unsigned long count = sz / sizeof(struct kinfo_proc);
+	APPEND("# HELP ps5_processes Number of processes.\n# TYPE ps5_processes gauge\nps5_processes %lu\n", count);
+	const struct kinfo_proc* first = (const struct kinfo_proc*)buf;
+	if (first->ki_structsize != (int)sizeof(struct kinfo_proc)) return len;
+	long pagesize = 16384; /* PS5 page size; getpagesize() is not available to payloads */
+	for (int pass = 0; pass < 2; pass++) {
+		if (pass == 0) APPEND("# HELP ps5_process_cpu_seconds_total CPU time consumed by the process.\n# TYPE ps5_process_cpu_seconds_total counter\n");
+		else APPEND("# HELP ps5_process_resident_bytes Resident memory of the process.\n# TYPE ps5_process_resident_bytes gauge\n");
+		for (unsigned long i = 0; i < count; i++) {
+			const struct kinfo_proc* k = (const struct kinfo_proc*)(buf + i * sizeof(struct kinfo_proc));
+			if (!printable_name(k->ki_comm, COMMLEN + 1)) continue;
+			char name[COMMLEN + 2], esc[2 * COMMLEN + 4];
+			memcpy(name, k->ki_comm, COMMLEN + 1);
+			name[COMMLEN + 1] = 0;
+			escape_label(name, esc, sizeof(esc));
+			if (pass == 0) APPEND("ps5_process_cpu_seconds_total{pid=\"%d\",name=\"%s\"} %.3f\n", (int)k->ki_pid, esc, (double)k->ki_runtime / 1e6);
+			else APPEND("ps5_process_resident_bytes{pid=\"%d\",name=\"%s\"} %lld\n", (int)k->ki_pid, esc, (long long)k->ki_rssize * pagesize);
+		}
 	}
 	return len;
 }
@@ -167,6 +218,7 @@ size_t metrics_system(char* out, size_t cap)
 	len += info(out + len, cap - len);
 	len += temperatures(out + len, cap - len);
 	len += uptime(out + len, cap - len);
+	len += direct_memory(out + len, cap - len);
 	len += filesystems(out + len, cap - len);
 	len += network(out + len, cap - len);
 	len += processes(out + len, cap - len);

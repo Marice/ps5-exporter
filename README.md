@@ -8,7 +8,10 @@ What it reports:
 
 - CPU and SoC temperatures and the CPU frequency
 - uptime and boot time, model and system software version
-- filesystems (size and free space per mount) and the number of processes
+- filesystems (size and free space per mount), the direct memory pool
+  (games and GPU) and its largest free block
+- the process table: number of processes, CPU time and resident memory per
+  process (so Grafana can show what eats CPU)
 - from ShadowMountPlus, when it runs: its version, storage overview, the
   game list with per-title `mounted` (1 while a game runs), `installed` and
   `source_available`
@@ -62,12 +65,14 @@ source, and select the scrape job (`ps5` by default).
 
 | Metric | Labels | Meaning |
 |---|---|---|
-| `ps5_temperature_celsius` | `sensor` (cpu, soc0..3) | Temperatures the console reports |
+| `ps5_temperature_celsius` | `sensor` (cpu, soc0..socN) | Temperatures the console reports; every SoC sensor index that answers |
 | `ps5_cpu_frequency_hertz` | | CPU frequency |
 | `ps5_uptime_seconds`, `ps5_boot_time_seconds` | | Uptime and boot time |
 | `ps5_info` | `model`, `firmware`, `system_version` | Model, the kernel's firmware version (`13.60`) and the version the system API reports |
 | `ps5_filesystem_size_bytes`, `ps5_filesystem_avail_bytes` | `mountpoint`, `fstype` | Mounted filesystems |
 | `ps5_processes` | | Number of processes |
+| `ps5_process_cpu_seconds_total`, `ps5_process_resident_bytes` | `pid`, `name` | CPU time and resident memory per process |
+| `ps5_direct_memory_bytes`, `ps5_direct_memory_largest_free_bytes` | | Direct memory pool and its largest free block |
 | `ps5_shadowmount_up`, `ps5_shadowmount_info` | `version` | ShadowMountPlus reachable and its version |
 | `ps5_shadowmount_storage_*_bytes` | `mount_point`, `source`, `filesystem` | Storage as ShadowMount sees it |
 | `ps5_shadowmount_games` | | Number of managed games |

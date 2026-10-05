@@ -636,6 +636,213 @@
       "description": "Bars while a game is mounted. Compare with the temperature panel to see which title heats the console up."
     },
     {
+      "id": 18,
+      "type": "gauge",
+      "title": "Fan",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 4,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_fan_duty_percent{job=~\"$job\"}",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "description": "Fan duty cycle. Shows n/a until the exporter build on the console reports it."
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "CPU usage",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 13,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_cpu_usage_percent{job=~\"$job\"}",
+          "legendFormat": "{{core}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "all"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "description": "Per core and overall, when the console reports it."
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Top processes by CPU",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 13,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "topk(8, rate(ps5_process_cpu_seconds_total{job=~\"$job\"}[2m]) * 100)",
+          "legendFormat": "{{name}} ({{pid}})",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "decimals": 1,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "description": "CPU time per process from the process table, as a percentage of one core."
+    },
+    {
       "id": 10,
       "type": "bargauge",
       "title": "Storage used",
@@ -645,7 +852,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -710,7 +917,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 13,
+        "y": 22,
         "w": 12,
         "h": 8
       },
@@ -755,6 +962,137 @@
       }
     },
     {
+      "id": 21,
+      "type": "bargauge",
+      "title": "Direct memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_direct_memory_largest_free_bytes{job=~\"$job\"}",
+          "legendFormat": "largest free block",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_direct_memory_bytes{job=~\"$job\"}",
+          "legendFormat": "pool size",
+          "refId": "B",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "continuous-BlPu"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "description": "The pool games and the GPU allocate from. The free block is a lower bound of free direct memory."
+    },
+    {
+      "id": 22,
+      "type": "bargauge",
+      "title": "Top processes by memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 30,
+        "w": 16,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "topk(10, ps5_process_resident_bytes{job=~\"$job\"})",
+          "legendFormat": "{{name}} ({{pid}})",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 12,
       "type": "table",
       "title": "Game library (ShadowMountPlus)",
@@ -764,7 +1102,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 37,
         "w": 16,
         "h": 10
       },
@@ -948,7 +1286,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 21,
+        "y": 37,
         "w": 8,
         "h": 5
       },
@@ -999,7 +1337,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 26,
+        "y": 42,
         "w": 8,
         "h": 5
       },
@@ -1050,7 +1388,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 47,
         "w": 8,
         "h": 5
       },
@@ -1101,7 +1439,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 31,
+        "y": 47,
         "w": 8,
         "h": 5
       },
@@ -1160,7 +1498,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 31,
+        "y": 47,
         "w": 8,
         "h": 5
       },
@@ -1260,6 +1598,6 @@
   "timezone": "browser",
   "title": "PS5",
   "uid": "ps5-exporter",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
