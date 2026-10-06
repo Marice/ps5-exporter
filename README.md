@@ -6,13 +6,13 @@ your other payloads and serves `GET /metrics` on port 9100, so Prometheus
 
 What it reports:
 
-- CPU and SoC temperatures, fan speed, per-core CPU usage and the CPU frequency
-- SoC power draw, total hours powered on and power cycles since new
+- CPU and SoC temperatures (all sensors the kernel answers for; 17 on a
+  CFI-7121), fan speed and the CPU frequency
+- the direct memory pool (games and GPU) and its largest free block
 - uptime and boot time, model and system software version
-- filesystems (size and free space per mount), the direct memory pool
-  (games and GPU) and its largest free block
-- the process table: number of processes, CPU time and resident memory per
-  process (so Grafana can show what eats CPU)
+- filesystems (size and free space per mount)
+- the process table: number of processes, CPU time, resident memory and
+  instance count per executable name (so Grafana can show what eats CPU)
 - from ShadowMountPlus, when it runs: its version, storage overview, the
   game list with per-title `mounted` (1 while a game runs), `installed` and
   `source_available`
@@ -137,6 +137,25 @@ make upload      # copy it to /data/pldmgr/payloads/ps5-exporter/ over FTP (port
 No libraries beyond the SDK: a small HTTP/1.0 server and client on BSD
 sockets, `sysctl`, `getmntinfo` and `getifaddrs` for the system numbers,
 and the libkernel temperature calls the SDK's `hwinfo` sample uses.
+
+## What works on a console, and what does not
+
+Verified on a CFI-7121 running firmware 13.60, as a payload under the
+Payload Manager autoloader:
+
+| Metric | Status |
+| --- | --- |
+| Temperatures (17 sensors), CPU frequency, uptime, model, firmware | works |
+| Fan speed (`ps5_fan_duty_ratio`) | works |
+| Filesystems, direct memory, ShadowMount storage and games | works |
+| Per-process CPU and memory | works, see the record size note below |
+| Per-core CPU usage, SoC power, lifetime counters | the console refuses these calls from a payload; the metrics are left out and `ps5_exporter_collector_success` reports 0 |
+
+The process table records are 1096 bytes on this firmware while the SDK
+header describes 1088, so the exporter takes the record size from the
+kernel itself and publishes it as `ps5_process_record_bytes`. If a future
+firmware changes the layout again, that metric shows it instead of the
+details silently disappearing.
 
 ## How the hardware values are read
 

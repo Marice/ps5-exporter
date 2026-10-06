@@ -21,6 +21,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   can cause) made the accept loop spin forever instead of rebinding.
 - JSON parsing read past the end of the response on truncated escapes and
   short `true`/`false` values.
+- Per-process metrics were missing on firmware 13.60: its process records
+  are 1096 bytes while the SDK header describes 1088, so the record size
+  now comes from the kernel instead of the header.
 
 ### Changed
 - `ps5_fan_duty_percent` and `ps5_cpu_usage_percent` are now
@@ -40,7 +43,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `ps5_filesystem_free_bytes`, `ps5_exporter_collector_success`,
-  `ps5_shadowmount_games_cache_age_seconds`.
+  `ps5_shadowmount_games_cache_age_seconds`, `ps5_process_record_bytes`,
+  `ps5_process_instances`.
 - `make test`: host tests with sanitizers, no console needed.
 
 ### Added

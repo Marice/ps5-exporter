@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
 #include <unistd.h>
@@ -132,8 +133,22 @@ void probe_run(const char* what, Buf* b)
 		static unsigned char big[256 * 1024];
 		if (sz > sizeof(big)) sz = sizeof(big);
 		if (sysctl(mib, 3, big, &sz, NULL, 0) != 0) { APPEND("sysctl read failed\n"); return; }
+		int structsize = ((struct kinfo_proc*)big)->ki_structsize;
+		APPEND("sysctl returned %zu bytes\n", sz);
+		APPEND("SDK sizeof(kinfo_proc) = %zu, offsetof(ki_comm) = %zu, COMMLEN = %d\n", sizeof(struct kinfo_proc), offsetof(struct kinfo_proc, ki_comm), COMMLEN);
+		APPEND("kernel ki_structsize = %d (0x%x)\n", structsize, (unsigned)structsize);
+		if (structsize > 0 && (size_t)structsize <= sz) {
+			APPEND("=> %zu records at the kernel stride\n", sz / (size_t)structsize);
+			/* Show where the name sits with the kernel's own stride. */
+			for (int r = 0; r < 3 && (size_t)(r + 1) * structsize <= sz; r++) {
+				const unsigned char* rec = big + (size_t)r * structsize;
+				APPEND("record %d: pid field=%d name@%zu='%.20s'\n", r,
+				       (int)((const struct kinfo_proc*)rec)->ki_pid,
+				       offsetof(struct kinfo_proc, ki_comm),
+				       (const char*)(rec + offsetof(struct kinfo_proc, ki_comm)));
+			}
+		}
 		size_t count = sz / sizeof(struct kinfo_proc);
-		APPEND("kinfo_proc size=%zu bytes, %zu processes (structsize field of first: %d)\n", sizeof(struct kinfo_proc), count, ((struct kinfo_proc*)big)->ki_structsize);
 		APPEND("%6s %-20s %12s %10s %8s\n", "pid", "comm", "runtime_us", "rss_pages", "pctcpu");
 		for (size_t i = 0; i < count && i < 120; i++) {
 			const struct kinfo_proc* k = (const struct kinfo_proc*)(big + i * sizeof(struct kinfo_proc));

@@ -12,6 +12,7 @@
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/user.h>
+#include <stddef.h>
 #include <time.h>
 
 #include <ps5/kernel.h>
@@ -233,20 +234,29 @@ static void processes(Buf* b)
 		metrics_note_collector("processes", 0);
 		return;
 	}
-	unsigned long count = sz / sizeof(struct kinfo_proc);
-	buf_addf(b, "# HELP ps5_processes Number of processes.\n# TYPE ps5_processes gauge\nps5_processes %lu\n", count);
+	/* The kernel states its own record size in the first field. The PS5
+	   layout does not match the SDK header, so trust the kernel for the
+	   stride and only read fields up to the size it reports. */
 	const struct kinfo_proc* first = (const struct kinfo_proc*)buf;
-	if (first->ki_structsize != (int)sizeof(struct kinfo_proc)) {
-		/* Different kernel layout: the count is still right, the rest is not. */
+	size_t stride = (size_t)first->ki_structsize;
+	/* The record layout differs per firmware, so publish what the kernel
+	   reports: that turns a silent "no process details" into something you
+	   can actually see and fix. */
+	buf_addf(b, "# HELP ps5_process_record_bytes Size of one process record as the kernel reports it (0 when unusable).\n# TYPE ps5_process_record_bytes gauge\nps5_process_record_bytes %zu\n", stride);
+	if (stride < offsetof(struct kinfo_proc, ki_comm) + COMMLEN + 1 || stride > sz) {
+		/* Unusable layout: report the count from the SDK-sized stride only. */
+		buf_addf(b, "# HELP ps5_processes Number of processes.\n# TYPE ps5_processes gauge\nps5_processes %lu\n", (unsigned long)(sz / sizeof(struct kinfo_proc)));
 		metrics_note_collector("processes", 1);
 		metrics_note_collector("process_details", 0);
 		return;
 	}
+	unsigned long count = sz / stride;
+	buf_addf(b, "# HELP ps5_processes Number of processes.\n# TYPE ps5_processes gauge\nps5_processes %lu\n", count);
 	static struct proc_agg agg[MAX_PROC_NAMES];
 	int nagg = 0;
 	const long pagesize = 16384; /* PS5 page size; getpagesize() is unavailable to payloads */
 	for (unsigned long i = 0; i < count; i++) {
-		const struct kinfo_proc* k = (const struct kinfo_proc*)(buf + i * sizeof(struct kinfo_proc));
+		const struct kinfo_proc* k = (const struct kinfo_proc*)(buf + i * stride);
 		if (!printable_name(k->ki_comm, COMMLEN + 1)) continue;
 		char name[COMMLEN + 2];
 		memcpy(name, k->ki_comm, COMMLEN + 1);
