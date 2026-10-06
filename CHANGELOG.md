@@ -42,6 +42,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tag cannot disagree.
 
 ### Added
+- Dashboard: the game library table now joins the per-title state onto the
+  info metric, so names, platform and source show up; panels for metrics
+  firmware 13.60 refuses say so instead of "No data".
 - `ps5_filesystem_free_bytes`, `ps5_exporter_collector_success`,
   `ps5_shadowmount_games_cache_age_seconds`, `ps5_process_record_bytes`,
   `ps5_process_instances`.

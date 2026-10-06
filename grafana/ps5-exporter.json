@@ -448,7 +448,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "(ps5_shadowmount_game_mounted{job=~\"$job\"} == 1) * on(title_id) group_left(name) ps5_shadowmount_game_info{job=~\"$job\"}",
+          "expr": "ps5_shadowmount_game_info{job=~\"$job\"} and on(title_id) (ps5_shadowmount_game_mounted{job=~\"$job\"} == 1)",
           "legendFormat": "{{name}}",
           "refId": "A",
           "range": false,
@@ -766,7 +766,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "Not available on this firmware"
         },
         "overrides": [
           {
@@ -790,7 +791,7 @@
           }
         ]
       },
-      "description": "Per core. The overall load is the average, drawn as the thick line."
+      "description": "Per core, from sceKernelGetCpuUsageAll. Firmware 13.60 refuses this call from a payload, so the panel stays empty there; ps5_exporter_collector_success{collector=\"cpu_usage\"} shows it as 0."
     },
     {
       "id": 20,
@@ -824,7 +825,8 @@
           "displayMode": "table",
           "placement": "right",
           "calcs": [
-            "lastNotNull"
+            "lastNotNull",
+            "max"
           ]
         },
         "tooltip": {
@@ -834,15 +836,15 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "none",
           "min": 0,
-          "decimals": 1,
+          "decimals": 2,
           "custom": {
             "lineWidth": 1,
             "fillOpacity": 15,
             "showPoints": "never",
             "stacking": {
-              "mode": "normal"
+              "mode": "none"
             }
           },
           "color": {
@@ -851,7 +853,7 @@
         },
         "overrides": []
       },
-      "description": "CPU seconds per second, per executable name (1 = one core fully busy)."
+      "description": "CPU seconds used per second, per executable name. 1.0 means one core fully busy."
     },
     {
       "id": 23,
@@ -900,7 +902,7 @@
             "mode": "fixed",
             "fixedColor": "orange"
           },
-          "noValue": "n/a"
+          "noValue": "Not available on this firmware"
         },
         "overrides": []
       },
@@ -1177,47 +1179,43 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "ps5_shadowmount_game_info{job=~\"$job\"}",
-          "legendFormat": "",
           "refId": "A",
-          "range": false,
           "instant": true,
-          "format": "table"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "ps5_shadowmount_game_mounted{job=~\"$job\"}",
-          "legendFormat": "",
+          "expr": "ps5_shadowmount_game_mounted{job=~\"$job\"} * on(title_id) group_left(name,platform,source_type) ps5_shadowmount_game_info{job=~\"$job\"}",
           "refId": "B",
-          "range": false,
           "instant": true,
-          "format": "table"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "ps5_shadowmount_game_installed{job=~\"$job\"}",
-          "legendFormat": "",
+          "expr": "ps5_shadowmount_game_installed{job=~\"$job\"} * on(title_id) group_left(name,platform,source_type) ps5_shadowmount_game_info{job=~\"$job\"}",
           "refId": "C",
-          "range": false,
           "instant": true,
-          "format": "table"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "ps5_shadowmount_game_source_available{job=~\"$job\"}",
-          "legendFormat": "",
+          "expr": "ps5_shadowmount_game_source_available{job=~\"$job\"} * on(title_id) group_left(name,platform,source_type) ps5_shadowmount_game_info{job=~\"$job\"}",
           "refId": "D",
-          "range": false,
           "instant": true,
-          "format": "table"
+          "format": "table",
+          "legendFormat": ""
         }
       ],
       "options": {
@@ -1305,24 +1303,48 @@
       },
       "transformations": [
         {
-          "id": "merge",
-          "options": {}
+          "id": "joinByField",
+          "options": {
+            "byField": "title_id",
+            "mode": "outer"
+          }
         },
         {
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true,
-              "__name__": true,
-              "instance": true,
-              "job": true,
-              "Value #A": true
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "__name__ 4": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "instance 4": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "job 4": true,
+              "Value #A": true,
+              "name 2": true,
+              "name 3": true,
+              "name 4": true,
+              "platform 2": true,
+              "platform 3": true,
+              "platform 4": true,
+              "source_type 2": true,
+              "source_type 3": true,
+              "source_type 4": true
             },
             "renameByName": {
               "title_id": "Title ID",
-              "name": "Name",
-              "platform": "Platform",
-              "source_type": "Source",
+              "name 1": "Name",
+              "platform 1": "Platform",
+              "source_type 1": "Source",
               "Value #B": "Running",
               "Value #C": "Installed",
               "Value #D": "Source OK"
@@ -1386,7 +1408,8 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "purple"
-          }
+          },
+          "noValue": "no data"
         },
         "overrides": []
       }
@@ -1437,7 +1460,8 @@
           "color": {
             "mode": "fixed",
             "fixedColor": "yellow"
-          }
+          },
+          "noValue": "no data"
         },
         "overrides": []
       }
@@ -1541,7 +1565,7 @@
               }
             ]
           },
-          "noValue": "n/a"
+          "noValue": "n/a on 13.60"
         },
         "overrides": []
       },
@@ -1595,7 +1619,7 @@
               }
             ]
           },
-          "noValue": "n/a"
+          "noValue": "n/a on 13.60"
         },
         "overrides": []
       }
@@ -1769,6 +1793,6 @@
   "timezone": "browser",
   "title": "PS5",
   "uid": "ps5-exporter",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }
