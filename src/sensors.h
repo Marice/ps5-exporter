@@ -2,10 +2,10 @@
 #ifndef SENSORS_H
 #define SENSORS_H
 
-#include <stddef.h>
+#include "buf.h"
 
 /* Append the hardware sensor metrics. Calls the console refuses, or values
    outside a plausible range, are skipped silently. */
-size_t metrics_sensors(char* out, size_t cap);
+void metrics_sensors(Buf* b);
 
 #endif

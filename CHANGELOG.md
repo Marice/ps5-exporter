@@ -6,6 +6,43 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Buffer overflow when ShadowMount reported more games than fitted in the
+  output buffer: the append helpers counted what they would have written
+  instead of what they did, so the length ran past the capacity and the
+  next collector wrote outside the buffer. All output now goes through one
+  append-only buffer that cannot overflow, confirmed by a test with 900
+  games under AddressSanitizer.
+- Per-core CPU usage printed the wrong value because the core index was
+  missing from the format arguments.
+- A slow client could hold the single-threaded server indefinitely: reading
+  a request and writing a response now have wall-clock deadlines.
+- An unusable listening socket (which suspending and resuming the console
+  can cause) made the accept loop spin forever instead of rebinding.
+- JSON parsing read past the end of the response on truncated escapes and
+  short `true`/`false` values.
+
+### Changed
+- `ps5_fan_duty_percent` and `ps5_cpu_usage_percent` are now
+  `ps5_fan_duty_ratio` and `ps5_cpu_usage_ratio` (0 to 1, the Prometheus
+  convention). `ps5_fan_duty_raw` is gone, `ps5_soc_power_raw` is now
+  `ps5_soc_power_raw_value`.
+- `ps5_cpu_usage_ratio` no longer carries a `core="all"` sample: an
+  aggregate inside the same family makes `sum()` double-count. Use `avg()`.
+- Process metrics are aggregated per executable name instead of per pid,
+  which keeps the number of time series bounded. Adds
+  `ps5_process_instances`.
+- The ShadowMount game list is cached for five minutes and all its calls
+  share a four second budget, so a scrape stays inside Prometheus' timeout.
+- `/quit` only answers on loopback.
+- The version now comes from the Makefile, so the binary and the release
+  tag cannot disagree.
+
+### Added
+- `ps5_filesystem_free_bytes`, `ps5_exporter_collector_success`,
+  `ps5_shadowmount_games_cache_age_seconds`.
+- `make test`: host tests with sanitizers, no console needed.
+
 ### Added
 - Fan speed (`ps5_fan_duty_percent`, raw 0..1024 scale from the kernel).
 - Per-core CPU usage and the average (`ps5_cpu_usage_percent{core}`).

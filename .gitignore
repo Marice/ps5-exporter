@@ -2,3 +2,4 @@
 *.o
 /dist/
 /ps5-exporter-probe.elf
+/build/

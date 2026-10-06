@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "metrics.h"
+
 int sceKernelGetCurrentFanDuty(uint16_t* duty, uint64_t* chassis);
 int sceKernelGetCpuUsageAll(int* per_core_pct, int* count_out);
 int sceKernelGetSocPowerConsumption(uint64_t* out, double reserved);
@@ -30,78 +32,88 @@ int sceKernelGetBasicProductShape(int* out);
 #define CORE_SLOTS 32
 #define MAX_CORES 16
 
-#define APPEND(...) do { int n_ = snprintf(out + len, cap > len ? cap - len : 0, __VA_ARGS__); if (n_ > 0) len += (size_t)n_; } while (0)
-
-static size_t fan(char* out, size_t cap)
+static void fan(Buf* b)
 {
-	size_t len = 0;
 	uint16_t duty = 0xffff;
 	uint64_t chassis = 0;
-	if (sceKernelGetCurrentFanDuty(&duty, &chassis) != 0) return 0;
-	if (duty > FAN_DUTY_SCALE) return 0;
-	APPEND("# HELP ps5_fan_duty_percent Fan duty cycle (raw value scaled from 0..1024).\n# TYPE ps5_fan_duty_percent gauge\nps5_fan_duty_percent %.1f\n", duty * 100.0 / FAN_DUTY_SCALE);
-	APPEND("# HELP ps5_fan_duty_raw Fan duty cycle as the kernel reports it (0..1024).\n# TYPE ps5_fan_duty_raw gauge\nps5_fan_duty_raw %u\n", (unsigned)duty);
-	return len;
+	if (sceKernelGetCurrentFanDuty(&duty, &chassis) != 0 || duty > FAN_DUTY_SCALE) {
+		metrics_note_collector("fan", 0);
+		return;
+	}
+	/* One canonical representation: a 0..1 ratio, the Prometheus convention
+	   for a bounded fraction. Grafana renders it as a percentage. */
+	buf_addf(b, "# HELP ps5_fan_duty_ratio Fan duty cycle, 0 to 1 (kernel reports 0..1024).\n# TYPE ps5_fan_duty_ratio gauge\nps5_fan_duty_ratio %.4f\n", duty / FAN_DUTY_SCALE);
+	metrics_note_collector("fan", 1);
 }
 
-static size_t cpu_usage(char* out, size_t cap)
+static void cpu_usage(Buf* b)
 {
-	size_t len = 0;
 	int per_core[CORE_SLOTS];
 	int count = 0;
 	for (int i = 0; i < CORE_SLOTS; i++) per_core[i] = -1;
-	if (sceKernelGetCpuUsageAll(per_core, &count) != 0) return 0;
-	if (count <= 0 || count > MAX_CORES) return 0;
-	long total = 0;
+	if (sceKernelGetCpuUsageAll(per_core, &count) != 0 || count <= 0 || count > MAX_CORES) {
+		metrics_note_collector("cpu_usage", 0);
+		return;
+	}
+	size_t mark = buf_mark(b);
 	int valid = 0;
-	APPEND("# HELP ps5_cpu_usage_percent CPU usage per core, and the average over all cores.\n# TYPE ps5_cpu_usage_percent gauge\n");
+	/* Per core only: no aggregate inside the same family, so sum() and
+	   avg() over this metric stay correct. Use avg() for the overall load. */
+	buf_addf(b, "# HELP ps5_cpu_usage_ratio CPU usage per core, 0 to 1. Use avg() for the overall load.\n# TYPE ps5_cpu_usage_ratio gauge\n");
 	for (int i = 0; i < count; i++) {
 		if (per_core[i] < 0 || per_core[i] > 100) continue;
-		APPEND("ps5_cpu_usage_percent{core=\"%d\"} %d\n", i, per_core[i]);
-		total += per_core[i];
+		buf_addf(b, "ps5_cpu_usage_ratio{core=\"%d\"} %.2f\n", i, per_core[i] / 100.0);
 		valid++;
 	}
-	if (valid > 0) APPEND("ps5_cpu_usage_percent{core=\"all\"} %.1f\n", (double)total / valid);
-	APPEND("# HELP ps5_cpu_cores Number of CPU cores the kernel reports usage for.\n# TYPE ps5_cpu_cores gauge\nps5_cpu_cores %d\n", count);
-	return len;
-}
-
-static size_t soc_power(char* out, size_t cap)
-{
-	size_t len = 0;
-	uint64_t buf[16];
-	memset(buf, 0, sizeof(buf));
-	if (sceKernelGetSocPowerConsumption(buf, 0.0) != 0) return 0;
-	/* The unit is not documented; community findings point at milliwatts.
-	   Publish the raw value and a watts reading only when it is plausible
-	   for a console (1 W to 350 W). */
-	APPEND("# HELP ps5_soc_power_raw Raw first word of sceKernelGetSocPowerConsumption (unit unconfirmed).\n# TYPE ps5_soc_power_raw gauge\nps5_soc_power_raw %llu\n", (unsigned long long)buf[0]);
-	if (buf[0] >= 1000 && buf[0] <= 350000) {
-		APPEND("# HELP ps5_soc_power_watts SoC power, assuming the raw value is milliwatts.\n# TYPE ps5_soc_power_watts gauge\nps5_soc_power_watts %.2f\n", buf[0] / 1000.0);
+	if (valid == 0) {
+		buf_rewind(b, mark);
+		metrics_note_collector("cpu_usage", 0);
+		return;
 	}
-	return len;
+	buf_addf(b, "# HELP ps5_cpu_cores Number of CPU cores the kernel reports usage for.\n# TYPE ps5_cpu_cores gauge\nps5_cpu_cores %d\n", count);
+	metrics_note_collector("cpu_usage", 1);
 }
 
-static size_t lifetime(char* out, size_t cap)
+static void soc_power(Buf* b)
 {
-	size_t len = 0;
+	uint64_t raw[16];
+	memset(raw, 0, sizeof(raw));
+	if (sceKernelGetSocPowerConsumption(raw, 0.0) != 0) {
+		metrics_note_collector("soc_power", 0);
+		return;
+	}
+	/* The unit is not documented; community findings point at milliwatts.
+	   Only publish watts when the value is plausible for a console, and
+	   keep the raw reading under its own name so an unexpected unit can be
+	   spotted instead of silently producing a blank panel. */
+	buf_addf(b, "# HELP ps5_soc_power_raw_value Raw first word of sceKernelGetSocPowerConsumption (unit unconfirmed).\n# TYPE ps5_soc_power_raw_value gauge\nps5_soc_power_raw_value %llu\n", (unsigned long long)raw[0]);
+	int plausible = raw[0] >= 1000 && raw[0] <= 350000;
+	if (plausible) {
+		buf_addf(b, "# HELP ps5_soc_power_watts SoC power, assuming the raw value is milliwatts.\n# TYPE ps5_soc_power_watts gauge\nps5_soc_power_watts %.2f\n", raw[0] / 1000.0);
+	}
+	metrics_note_collector("soc_power", plausible);
+}
+
+static void lifetime(Buf* b)
+{
+	int ok = 0;
 	uint64_t v = 0;
 	if (sceKernelIccGetPowerOperatingTime(&v) == 0 && v > 0 && v < (uint64_t)100 * 365 * 24 * 3600) {
-		APPEND("# HELP ps5_power_operating_seconds_total Time the console has been powered on since new.\n# TYPE ps5_power_operating_seconds_total counter\nps5_power_operating_seconds_total %llu\n", (unsigned long long)v);
+		buf_addf(b, "# HELP ps5_power_operating_seconds_total Time the console has been powered on since new.\n# TYPE ps5_power_operating_seconds_total counter\nps5_power_operating_seconds_total %llu\n", (unsigned long long)v);
+		ok = 1;
 	}
 	v = 0;
 	if (sceKernelIccGetPowerNumberOfBootShutdown(&v) == 0 && v > 0 && v < 10000000) {
-		APPEND("# HELP ps5_power_cycles_total Number of power-on/off cycles since new.\n# TYPE ps5_power_cycles_total counter\nps5_power_cycles_total %llu\n", (unsigned long long)v);
+		buf_addf(b, "# HELP ps5_power_cycles_total Number of power-on/off cycles since new.\n# TYPE ps5_power_cycles_total counter\nps5_power_cycles_total %llu\n", (unsigned long long)v);
+		ok = 1;
 	}
-	return len;
+	metrics_note_collector("lifetime", ok);
 }
 
-size_t metrics_sensors(char* out, size_t cap)
+void metrics_sensors(Buf* b)
 {
-	size_t len = 0;
-	len += fan(out + len, cap - len);
-	len += cpu_usage(out + len, cap - len);
-	len += soc_power(out + len, cap - len);
-	len += lifetime(out + len, cap - len);
-	return len;
+	fan(b);
+	cpu_usage(b);
+	soc_power(b);
+	lifetime(b);
 }

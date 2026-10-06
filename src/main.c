@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "buf.h"
 #include "http.h"
 #include "metrics.h"
 #include "sensors.h"
@@ -19,7 +20,9 @@
 #include "probe.h"
 #endif
 
-#define EXPORTER_VERSION "0.1.1"
+#ifndef EXPORTER_VERSION
+#define EXPORTER_VERSION "0.0.0-dev"
+#endif
 #define EXPORTER_PORT 9100
 
 int sceKernelSendNotificationRequest(uint32_t device, void* request, size_t size, int blocking);
@@ -40,18 +43,23 @@ static void notify(const char* text)
 static unsigned long g_scrapes = 0;
 static volatile int g_quit = 0;
 
-static int handle(const char* path, char* body, size_t cap)
+static int handle(const char* path, char* body, size_t cap, int from_loopback)
 {
 	if (strcmp(path, "/metrics") == 0) {
 		g_scrapes++;
-		size_t len = 0;
-		len += metrics_self(body + len, cap - len, g_scrapes, EXPORTER_VERSION);
-		len += metrics_system(body + len, cap - len);
-		len += metrics_sensors(body + len, cap - len);
-		len += metrics_shadowmount(body + len, cap - len);
-		if (len >= cap - 1) {
-			/* Truncated output would be invalid for Prometheus; say so. */
-			snprintf(body, cap, "# metrics output exceeded %zu bytes\n", cap);
+		Buf b;
+		buf_init(&b, body, cap);
+		/* Collect first, then self-metrics, so collector results are known.
+		   The buffer is written in two parts: metrics_self goes last but
+		   must appear as its own families, which it does. */
+		metrics_system(&b);
+		metrics_sensors(&b);
+		metrics_shadowmount(&b);
+		metrics_self(&b, g_scrapes, EXPORTER_VERSION);
+		if (b.truncated) {
+			/* Partial output would be a misleading scrape: fail loudly so
+			   Prometheus records an error instead of half the metrics. */
+			snprintf(body, cap, "# metrics output did not fit in %zu bytes\n", cap);
 			return 500;
 		}
 		return 200;
@@ -61,16 +69,21 @@ static int handle(const char* path, char* body, size_t cap)
 		return 200;
 	}
 	if (strcmp(path, "/quit") == 0) {
-		/* Lets a newer build take over the port without a console reboot.
-		   Read-only otherwise, and LAN only, so this is acceptable. */
+		/* Stopping the exporter changes state, so keep it off the LAN: only
+		   something running on the console itself may call it. */
+		if (!from_loopback) {
+			snprintf(body, cap, "not found\n");
+			return 404;
+		}
 		snprintf(body, cap, "bye\n");
 		g_quit = 1;
 		return 200;
 	}
 #ifdef EXPORTER_PROBE
 	if (strncmp(path, "/probe/", 7) == 0) {
-		size_t n = probe_run(path + 7, body, cap);
-		body[n < cap ? n : cap - 1] = 0;
+		Buf b;
+		buf_init(&b, body, cap);
+		probe_run(path + 7, &b);
 		return 200;
 	}
 #endif
@@ -91,7 +104,10 @@ int main(int argc, char** argv)
 	/* Optional port: first argument or EXPORTER_PORT in the environment
 	   (handy to run a test build next to the autoloaded one). */
 	const char* env_port = getenv("EXPORTER_PORT");
-	if (env_port && atoi(env_port) > 0) g_port = atoi(env_port);
+	if (env_port) {
+		int p = atoi(env_port);
+		if (p > 0 && p < 65536) g_port = p;
+	}
 	/* Loaders differ in whether argv[0] is the program or the first user
 	   argument (websrv passes the args string as the whole argv), so any
 	   purely numeric argument counts. */
@@ -103,16 +119,25 @@ int main(int argc, char** argv)
 	snprintf(msg, sizeof(msg), "ps5-exporter %s: metrics on port %d", EXPORTER_VERSION, g_port);
 	fprintf(stderr, "%s\n", msg);
 	notify(msg);
-	/* Serve forever; retry the bind if the port is briefly still in use
-	   after a previous instance (payload reloads). */
+	/* Serve forever. http_serve also returns on a dead listening socket
+	   (which is what suspend/resume can do), so binding a fresh one here is
+	   the recovery path, not just a retry for a port still in TIME_WAIT. */
+	int failures = 0;
 	for (;;) {
 		if (http_serve(g_port, handle, &g_quit) == 0) {
 			fprintf(stderr, "ps5-exporter: quit requested\n");
 			return 0;
-		} else {
-			fprintf(stderr, "ps5-exporter: bind/listen on %d failed, retrying\n", g_port);
-			sleep(5);
 		}
+		failures++;
+		fprintf(stderr, "ps5-exporter: listener on %d unavailable (attempt %d), retrying\n", g_port, failures);
+		/* Tell the user once a minute of failures has passed: an invisible
+		   dead exporter is worse than a notification. */
+		if (failures == 12) {
+			char warn[128];
+			snprintf(warn, sizeof(warn), "ps5-exporter: cannot listen on port %d (already in use?)", g_port);
+			notify(warn);
+		}
+		sleep(5);
 	}
 	return 0;
 }

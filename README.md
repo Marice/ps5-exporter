@@ -68,16 +68,16 @@ source, and select the scrape job (`ps5` by default).
 |---|---|---|
 | `ps5_temperature_celsius` | `sensor` (cpu, soc0..socN) | Temperatures the console reports; every SoC sensor index that answers |
 | `ps5_cpu_frequency_hertz` | | CPU frequency |
-| `ps5_fan_duty_percent`, `ps5_fan_duty_raw` | | Fan duty cycle (percentage, and the raw 0..1024 value) |
-| `ps5_cpu_usage_percent` | `core` (0..n, `all`) | CPU usage per core and the average |
+| `ps5_fan_duty_ratio` | | Fan duty cycle, 0 to 1 |
+| `ps5_cpu_usage_ratio` | `core` | CPU usage per core, 0 to 1. Use `avg()` for the overall load |
 | `ps5_cpu_cores` | | Cores the kernel reports usage for |
-| `ps5_soc_power_watts`, `ps5_soc_power_raw` | | SoC power draw (the unit of the raw value is unconfirmed) |
+| `ps5_soc_power_watts`, `ps5_soc_power_raw_value` | | SoC power draw (the unit of the raw value is unconfirmed) |
 | `ps5_power_operating_seconds_total`, `ps5_power_cycles_total` | | Hours powered on and power cycles since the console was new |
 | `ps5_uptime_seconds`, `ps5_boot_time_seconds` | | Uptime and boot time |
 | `ps5_info` | `model`, `firmware`, `system_version` | Model, the kernel's firmware version (`13.60`) and the version the system API reports |
-| `ps5_filesystem_size_bytes`, `ps5_filesystem_avail_bytes` | `mountpoint`, `fstype` | Mounted filesystems |
+| `ps5_filesystem_size_bytes`, `ps5_filesystem_avail_bytes`, `ps5_filesystem_free_bytes` | `mountpoint`, `fstype` | Mounted filesystems (`free` includes reserved blocks, so used = size - free) |
 | `ps5_processes` | | Number of processes |
-| `ps5_process_cpu_seconds_total`, `ps5_process_resident_bytes` | `pid`, `name` | CPU time and resident memory per process |
+| `ps5_process_cpu_seconds_total`, `ps5_process_resident_bytes`, `ps5_process_instances` | `name` | CPU time, resident memory and count per executable name |
 | `ps5_direct_memory_bytes`, `ps5_direct_memory_largest_free_bytes` | | Direct memory pool and its largest free block |
 | `ps5_shadowmount_up`, `ps5_shadowmount_info` | `version` | ShadowMountPlus reachable and its version |
 | `ps5_shadowmount_storage_*_bytes` | `mount_point`, `source`, `filesystem` | Storage as ShadowMount sees it |
@@ -85,11 +85,44 @@ source, and select the scrape job (`ps5` by default).
 | `ps5_shadowmount_game_info` | `title_id`, `name`, `platform`, `source_type` | Game metadata |
 | `ps5_shadowmount_game_mounted` | `title_id` | 1 while the game's runtime mount is active |
 | `ps5_shadowmount_game_installed`, `ps5_shadowmount_game_source_available` | `title_id` | Registration and source state |
+| `ps5_shadowmount_games_cache_age_seconds` | | Age of the cached game list |
 | `ps5_exporter_scrapes_total`, `ps5_exporter_build_info` | | Exporter itself |
+| `ps5_exporter_collector_success` | `collector` | 1 when that collector produced data in the last scrape |
+
+Process metrics are aggregated per executable name rather than per pid: a
+pid label would create a new time series for every process the console ever
+starts, and `rate()` cannot work on series that live for a few seconds. The
+trade-off is that the counter drops when a process exits, which Prometheus
+reads as a counter reset.
 
 A useful Grafana panel: `ps5_temperature_celsius{sensor="cpu"}` against
 `max(ps5_shadowmount_game_mounted) by (title_id)` to see which game heats
 the console up.
+
+## Behaviour under failure
+
+- A scrape has a four second budget for the ShadowMount calls, so it always
+  fits inside Prometheus' default ten second timeout. The game list is
+  cached for five minutes (it rarely changes) and served from cache in
+  between; `ps5_shadowmount_games_cache_age_seconds` tells you how fresh it
+  is.
+- Metrics that the console refuses are left out rather than guessed, and
+  `ps5_exporter_collector_success` shows which collector produced nothing.
+- If the whole page does not fit in the output buffer the exporter answers
+  HTTP 500 instead of serving half a scrape, so Prometheus records an error
+  rather than silently losing metrics.
+- When the listening socket becomes unusable, which is what suspending and
+  resuming the console can do, the exporter binds a fresh one instead of
+  spinning on a dead socket.
+- `/quit` only answers on the loopback address: stopping the exporter is a
+  state change, so it is not reachable from the LAN.
+
+## Tests
+
+`make test` builds the host tests with AddressSanitizer and UBSan and runs
+them. They cover the append buffer, the sensor range checks and the JSON
+parser, including a game list far larger than the output buffer, which is
+how the overflow this code once had was found. No console needed.
 
 ## Building
 
