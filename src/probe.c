@@ -16,11 +16,16 @@
 
 #include "probe.h"
 
-int sceKernelGetCurrentFanDuty(void* out);
+int sceKernelGetCurrentFanDuty(uint16_t* duty, uint64_t* chassis);
 int sceKernelIccGetThermalAlert(void* out);
 int sceKernelGetCpuUsage(void* buf, int* count);
-int sceKernelGetCpuUsageAll(void* buf, int* count);
+int sceKernelGetCpuUsageAll(int* per_core_pct, int* count_out);
 int sceKernelGetCpuUsageProc(int pid, void* buf, int* count);
+int sceKernelGetSocPowerConsumption(uint64_t* out, double reserved);
+int sceKernelIccGetPowerNumberOfBootShutdown(uint64_t* out);
+int sceKernelIccGetPowerOperatingTime(uint64_t* out);
+int sceKernelGetBasicProductShape(int* out);
+int sceKernelGetCpumode(void);
 size_t sceKernelGetDirectMemorySize(void);
 int sceKernelAvailableDirectMemorySize(int64_t start, int64_t end, size_t align, int64_t* out_start, size_t* out_size);
 int sceKernelAvailableFlexibleMemorySize(size_t* out);
@@ -55,11 +60,11 @@ size_t probe_run(const char* what, char* out, size_t cap)
 	int rc, n;
 
 	if (strcmp(what, "fan") == 0) {
-		memset(buf, 0, sizeof(buf));
-		rc = sceKernelGetCurrentFanDuty(buf);
-		APPEND("sceKernelGetCurrentFanDuty(buf) rc=%d (0x%x)\nints: ", rc, (unsigned)rc);
-		len += ints(out + len, cap - len, buf, 8);
-		len += hexdump(out + len, cap - len, buf, 32);
+		uint16_t duty = 0xffff;
+		uint64_t chassis = 0;
+		rc = sceKernelGetCurrentFanDuty(&duty, &chassis);
+		APPEND("sceKernelGetCurrentFanDuty(&duty,&chassis) rc=%d (0x%x) duty=%u (%.1f%% of 1024) chassis=%llu\n",
+		       rc, (unsigned)rc, (unsigned)duty, duty * 100.0 / 1024.0, (unsigned long long)chassis);
 		memset(buf, 0, sizeof(buf));
 		rc = sceKernelIccGetThermalAlert(buf);
 		APPEND("sceKernelIccGetThermalAlert(buf) rc=%d (0x%x)\n", rc, (unsigned)rc);
@@ -75,11 +80,30 @@ size_t probe_run(const char* what, char* out, size_t cap)
 		return len;
 	}
 	if (strcmp(what, "cpuall") == 0) {
-		memset(buf, 0, sizeof(buf));
-		n = 64;
-		rc = sceKernelGetCpuUsageAll(buf, &n);
-		APPEND("sceKernelGetCpuUsageAll(buf, &n=64) rc=%d (0x%x) n=%d\n", rc, (unsigned)rc, n);
-		len += hexdump(out + len, cap - len, buf, 256);
+		int per_core[16];
+		for (int i = 0; i < 16; i++) per_core[i] = -1;
+		n = 0;
+		rc = sceKernelGetCpuUsageAll(per_core, &n);
+		APPEND("sceKernelGetCpuUsageAll(per_core,&count) rc=%d (0x%x) count=%d\nvalues: ", rc, (unsigned)rc, n);
+		len += ints(out + len, cap - len, per_core, 16);
+		return len;
+	}
+	if (strcmp(what, "power") == 0) {
+		uint64_t pw[16];
+		memset(pw, 0, sizeof(pw));
+		rc = sceKernelGetSocPowerConsumption(pw, 0.0);
+		APPEND("sceKernelGetSocPowerConsumption(buf,0.0) rc=%d (0x%x)\n", rc, (unsigned)rc);
+		for (int i = 0; i < 8; i++) APPEND("  [%d] %llu (0x%llx)\n", i, (unsigned long long)pw[i], (unsigned long long)pw[i]);
+		uint64_t v = 0;
+		rc = sceKernelIccGetPowerOperatingTime(&v);
+		APPEND("IccGetPowerOperatingTime rc=%d value=%llu (%.1f hours)\n", rc, (unsigned long long)v, v / 3600.0);
+		v = 0;
+		rc = sceKernelIccGetPowerNumberOfBootShutdown(&v);
+		APPEND("IccGetPowerNumberOfBootShutdown rc=%d value=%llu\n", rc, (unsigned long long)v);
+		int shape = -1;
+		rc = sceKernelGetBasicProductShape(&shape);
+		APPEND("GetBasicProductShape rc=%d shape=%d\n", rc, shape);
+		APPEND("GetCpumode = %d\n", sceKernelGetCpumode());
 		return len;
 	}
 	if (strcmp(what, "cpuproc") == 0) {
@@ -133,7 +157,7 @@ size_t probe_run(const char* what, char* out, size_t cap)
 		}
 		return len;
 	}
-	APPEND("probes: fan cpu cpuall cpuproc mem procs sensors\n");
+	APPEND("probes: fan cpu cpuall cpuproc power mem procs sensors\n");
 	return len;
 }
 

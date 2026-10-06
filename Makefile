@@ -13,7 +13,7 @@ include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
 # (the SDK hwinfo sample links it too); it provides the model name.
 CFLAGS := -Wall -Wextra -O2 -std=c11 -lkernel_sys
 
-SRCS := src/main.c src/http.c src/metrics.c src/shadowmount.c
+SRCS := src/main.c src/http.c src/metrics.c src/sensors.c src/shadowmount.c
 
 $(ELF): $(SRCS) src/*.h
 	$(CC) $(CFLAGS) -o $@ $(SRCS)

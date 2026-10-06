@@ -13,6 +13,7 @@
 
 #include "http.h"
 #include "metrics.h"
+#include "sensors.h"
 #include "shadowmount.h"
 #ifdef EXPORTER_PROBE
 #include "probe.h"
@@ -46,6 +47,7 @@ static int handle(const char* path, char* body, size_t cap)
 		size_t len = 0;
 		len += metrics_self(body + len, cap - len, g_scrapes, EXPORTER_VERSION);
 		len += metrics_system(body + len, cap - len);
+		len += metrics_sensors(body + len, cap - len);
 		len += metrics_shadowmount(body + len, cap - len);
 		if (len >= cap - 1) {
 			/* Truncated output would be invalid for Prometheus; say so. */

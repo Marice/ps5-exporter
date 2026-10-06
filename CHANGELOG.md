@@ -7,6 +7,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Fan speed (`ps5_fan_duty_percent`, raw 0..1024 scale from the kernel).
+- Per-core CPU usage and the average (`ps5_cpu_usage_percent{core}`).
+- SoC power draw and the lifetime counters: hours powered on and power
+  cycles since new.
+- Dashboard: SoC power and lifetime panels; the fan and CPU panels now have
+  data.
 - All SoC temperature sensors the kernel answers for (not only 0..3).
 - Direct memory pool size and largest free block.
 - Per-process CPU time and resident memory from the process table, checked

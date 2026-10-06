@@ -6,7 +6,8 @@ your other payloads and serves `GET /metrics` on port 9100, so Prometheus
 
 What it reports:
 
-- CPU and SoC temperatures and the CPU frequency
+- CPU and SoC temperatures, fan speed, per-core CPU usage and the CPU frequency
+- SoC power draw, total hours powered on and power cycles since new
 - uptime and boot time, model and system software version
 - filesystems (size and free space per mount), the direct memory pool
   (games and GPU) and its largest free block
@@ -67,6 +68,11 @@ source, and select the scrape job (`ps5` by default).
 |---|---|---|
 | `ps5_temperature_celsius` | `sensor` (cpu, soc0..socN) | Temperatures the console reports; every SoC sensor index that answers |
 | `ps5_cpu_frequency_hertz` | | CPU frequency |
+| `ps5_fan_duty_percent`, `ps5_fan_duty_raw` | | Fan duty cycle (percentage, and the raw 0..1024 value) |
+| `ps5_cpu_usage_percent` | `core` (0..n, `all`) | CPU usage per core and the average |
+| `ps5_cpu_cores` | | Cores the kernel reports usage for |
+| `ps5_soc_power_watts`, `ps5_soc_power_raw` | | SoC power draw (the unit of the raw value is unconfirmed) |
+| `ps5_power_operating_seconds_total`, `ps5_power_cycles_total` | | Hours powered on and power cycles since the console was new |
 | `ps5_uptime_seconds`, `ps5_boot_time_seconds` | | Uptime and boot time |
 | `ps5_info` | `model`, `firmware`, `system_version` | Model, the kernel's firmware version (`13.60`) and the version the system API reports |
 | `ps5_filesystem_size_bytes`, `ps5_filesystem_avail_bytes` | `mountpoint`, `fstype` | Mounted filesystems |
@@ -99,12 +105,27 @@ No libraries beyond the SDK: a small HTTP/1.0 server and client on BSD
 sockets, `sysctl`, `getmntinfo` and `getifaddrs` for the system numbers,
 and the libkernel temperature calls the SDK's `hwinfo` sample uses.
 
+## How the hardware values are read
+
+Fan, per-core CPU usage, SoC power and the lifetime counters come from
+libkernel functions that are not in the SDK headers. Their signatures come
+from two homebrew projects that call them on real consoles:
+[drakmor/fan_target](https://github.com/drakmor/fan_target) (the
+ShadowMountPlus author) for `sceKernelGetCurrentFanDuty(uint16_t*, uint64_t*)`
+with its 0..1024 scale, and
+[aloksaurabh/elf-arsenal](https://github.com/aloksaurabh/elf-arsenal) for
+`sceKernelGetCpuUsageAll(int*, int*)` and `sceKernelGetSocPowerConsumption`.
+
+These are ordinary library calls, not kernel memory reads at fixed offsets,
+so they are not tied to one firmware version. Every value is range-checked
+before it is published: a console that refuses a call, or answers something
+implausible, simply leaves that metric out.
+
 ## Not yet
 
-- CPU and GPU load, FPS and fan speed. etaHEN shows these in its overlay,
-  but they come from kernel memory with firmware-specific offsets. The fan
-  duty (`sceKernelGetCurrentFanDuty`) exists in `libkernel_sys`; it will be
-  added once it is verified from a payload.
+- GPU load and FPS. etaHEN shows these in its overlay, but they come from
+  kernel memory with firmware-specific offsets, which would tie the exporter
+  to one firmware.
 - Memory: the `hw.physmem` and `hw.usermem` sysctls are refused for
   payloads on 13.60.
 - Network counters: `getifaddrs` works, but the `if_data` layout in the SDK

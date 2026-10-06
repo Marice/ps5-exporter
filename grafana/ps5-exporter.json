@@ -698,7 +698,7 @@
         },
         "overrides": []
       },
-      "description": "Fan duty cycle. Shows n/a until the exporter build on the console reports it."
+      "description": "Fan duty cycle, scaled from the kernel's 0..1024 value."
     },
     {
       "id": 19,
@@ -779,7 +779,7 @@
           }
         ]
       },
-      "description": "Per core and overall, when the console reports it."
+      "description": "Per core and the average, from sceKernelGetCpuUsageAll."
     },
     {
       "id": 20,
@@ -792,7 +792,7 @@
       "gridPos": {
         "x": 14,
         "y": 13,
-        "w": 10,
+        "w": 7,
         "h": 9
       },
       "targets": [
@@ -841,6 +841,59 @@
         "overrides": []
       },
       "description": "CPU time per process from the process table, as a percentage of one core."
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "SoC power",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 13,
+        "w": 3,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_soc_power_watts{job=~\"$job\"}",
+          "legendFormat": "SoC",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "hidden"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "description": "Assumes the raw kernel value is milliwatts; unconfirmed."
     },
     {
       "id": 10,
@@ -1389,7 +1442,7 @@
       "gridPos": {
         "x": 0,
         "y": 47,
-        "w": 8,
+        "w": 4,
         "h": 5
       },
       "targets": [
@@ -1430,6 +1483,113 @@
       }
     },
     {
+      "id": 24,
+      "type": "stat",
+      "title": "Lifetime powered on",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 47,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_power_operating_seconds_total{job=~\"$job\"}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      },
+      "description": "Total time this console has been powered on since new."
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Power cycles",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 47,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_power_cycles_total{job=~\"$job\"}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "n/a"
+        },
+        "overrides": []
+      }
+    },
+    {
       "id": 16,
       "type": "stat",
       "title": "ShadowMountPlus",
@@ -1438,9 +1598,9 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 8,
+        "x": 12,
         "y": 47,
-        "w": 8,
+        "w": 6,
         "h": 5
       },
       "targets": [
@@ -1497,9 +1657,9 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "gridPos": {
-        "x": 16,
+        "x": 18,
         "y": 47,
-        "w": 8,
+        "w": 6,
         "h": 5
       },
       "targets": [
@@ -1598,6 +1758,6 @@
   "timezone": "browser",
   "title": "PS5",
   "uid": "ps5-exporter",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
