@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-10-06
+
 ### Fixed
 - Buffer overflow when ShadowMount reported more games than fitted in the
   output buffer: the append helpers counted what they would have written
