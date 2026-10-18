@@ -6,6 +6,39 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-10-18
+
+### Added
+- Power per rail: `ps5_power_rail_watts`, `_volts` and `_amperes` for the 8
+  rails of `sceKernelGetSocPowerConsumption`, and `ps5_power_watts`, their
+  sum.
+- Clocks: `ps5_soc_clock_hertz` (26 domains; 20 is the GPU) and
+  `ps5_cpu_core_clock_hertz`.
+- The running game (`ps5_game_running`, `ps5_game_info{title_id}`) and its
+  frames per second (`ps5_fps`).
+- Swap, wired memory and page tables; network interface info; USB and disc
+  drive power.
+- `ps5_exporter_scrape_seconds` and `ps5_exporter_collect_seconds{group}`.
+- A version marker in the ELF file (`PS5EXPORTER_VER:0.3.0`).
+- Grafana: power (total and GPU), FPS, GPU and memory clocks, power per rail.
+
+### Changed
+- CPU usage comes from the idle threads, per logical CPU (16).
+- The getters beyond the SDK's own samples are looked up on first use: a
+  function a firmware does not export costs only its metric, instead of
+  stopping the whole payload at load.
+
+### Fixed
+- `sceKernelGetCpuUsageAll` (`0x80020016` on 13.60) left CPU usage empty.
+- `ps5_soc_power_watts` was never published: the first 64-bit word holds
+  rail 0's voltage in its high half, so it never looked plausible. It is
+  replaced by the rails; `ps5_soc_power_raw_value` stays, deprecated.
+- `sceKernelGetSocPowerConsumption` was declared with a second argument it
+  does not take.
+
+### Removed
+- `ps5_soc_power_watts` (see Fixed).
+
 ## [v0.2.0] - 2026-10-06
 
 ### Fixed

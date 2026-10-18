@@ -5,6 +5,12 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <ifaddrs.h>
+#include <net/if_dl.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <net/if.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +23,8 @@
 
 #include <ps5/kernel.h>
 
+#include "optional.h"
+
 /* libkernel exports used by the SDK's hwinfo sample. */
 int sceKernelGetCpuTemperature(int* celsius);
 int sceKernelGetSocSensorTemperature(int sensor, int* celsius);
@@ -25,9 +33,12 @@ int sceKernelGetHwModelName(char* out);
 int sceKernelGetSystemSwVersion(void* out);
 size_t sceKernelGetDirectMemorySize(void);
 int sceKernelAvailableDirectMemorySize(int64_t start, int64_t end, size_t align, int64_t* out_start, size_t* out_size);
+/* Looked up on use (optional.h), after drakmor/ps5-hwinfo: sceKernelGetAppInfo(pid, out), 88 bytes with the
+   title ID at offset 0x10, and get_page_table_stats(vm, type, &total, &free), ShellCore's page table counts
+   (CPU type 1, GPU type 2). */
 
 /* Collector results for ps5_exporter_collector_success. */
-#define MAX_COLLECTORS 12
+#define MAX_COLLECTORS 24
 static struct { const char* name; int ok; } g_collectors[MAX_COLLECTORS];
 static int g_collector_count;
 
@@ -128,6 +139,51 @@ static void direct_memory(Buf* b)
 	metrics_note_collector("direct_memory", 1);
 }
 
+static int sysctl_u64(const char* name, uint64_t* out)
+{
+	uint64_t v = 0;
+	size_t len = sizeof(v);
+	if (sysctlbyname(name, &v, &len, NULL, 0) != 0) return -1;
+	*out = len == 4 ? (uint32_t)v : v;
+	return 0;
+}
+
+/* What a payload may read about memory: the vm.stats.vm.* totals are refused
+   on 13.60, the swap totals and the wired counts of vm0 (the system) and
+   vm10 are not. Page tables as ShellCore logs them ("page table CPU 4864/9216
+   GPU 179/9216"). */
+static void memory(Buf* b)
+{
+	const uint64_t page = 16384;
+	int ok = 0;
+	uint64_t total = 0, avail = 0;
+	if (sysctl_u64("vm.swap_total", &total) == 0 && sysctl_u64("vm.swap_avail", &avail) == 0 && total > 0 && avail * page <= total) {
+		buf_addf(b, "# HELP ps5_swap_size_bytes Swap size.\n# TYPE ps5_swap_size_bytes gauge\nps5_swap_size_bytes %llu\n", (unsigned long long)total);
+		buf_addf(b, "# HELP ps5_swap_free_bytes Free swap.\n# TYPE ps5_swap_free_bytes gauge\nps5_swap_free_bytes %llu\n", (unsigned long long)(avail * page));
+		ok = 1;
+	}
+	uint64_t wired0 = 0, wired10 = 0;
+	int have0 = sysctl_u64("vm.stats.vm0.v_wire_count", &wired0) == 0;
+	int have10 = sysctl_u64("vm.stats.vm10.v_wire_count", &wired10) == 0;
+	if (have0 || have10) {
+		buf_addf(b, "# HELP ps5_memory_wired_bytes Wired memory per VM (0 is the system).\n# TYPE ps5_memory_wired_bytes gauge\n");
+		if (have0) buf_addf(b, "ps5_memory_wired_bytes{vm=\"0\"} %llu\n", (unsigned long long)(wired0 * page));
+		if (have10) buf_addf(b, "ps5_memory_wired_bytes{vm=\"10\"} %llu\n", (unsigned long long)(wired10 * page));
+		ok = 1;
+	}
+	int cpu_total = -1, cpu_free = -1, gpu_total = -1, gpu_free = -1;
+	int (*tables)(int, int, int*, int*) = OPTIONAL(int (*)(int, int, int*, int*), get_page_table_stats);
+	int have_cpu = tables && tables(0, 1, &cpu_total, &cpu_free) == 0 && cpu_total > 0 && cpu_free >= 0 && cpu_free <= cpu_total;
+	int have_gpu = tables && tables(0, 2, &gpu_total, &gpu_free) == 0 && gpu_total > 0 && gpu_free >= 0 && gpu_free <= gpu_total;
+	if (have_cpu || have_gpu) {
+		buf_addf(b, "# HELP ps5_page_tables Page tables as ShellCore counts them, per user (cpu, gpu) and state (total, free).\n# TYPE ps5_page_tables gauge\n");
+		if (have_cpu) buf_addf(b, "ps5_page_tables{user=\"cpu\",state=\"total\"} %d\nps5_page_tables{user=\"cpu\",state=\"free\"} %d\n", cpu_total, cpu_free);
+		if (have_gpu) buf_addf(b, "ps5_page_tables{user=\"gpu\",state=\"total\"} %d\nps5_page_tables{user=\"gpu\",state=\"free\"} %d\n", gpu_total, gpu_free);
+		ok = 1;
+	}
+	metrics_note_collector("memory", ok);
+}
+
 static int skip_filesystem(const struct statfs* m)
 {
 	if (m->f_blocks == 0) return 1;
@@ -202,6 +258,50 @@ static void network(Buf* b)
 #endif
 }
 
+/* Address, MAC and MTU per interface that has an IPv4 address. */
+static void network_info(Buf* b)
+{
+	struct ifaddrs* list = NULL;
+	if (getifaddrs(&list) != 0) {
+		metrics_note_collector("network_info", 0);
+		return;
+	}
+	int sock = socket(AF_INET, SOCK_DGRAM, 0);
+	int samples = 0;
+	size_t mark = buf_mark(b);
+	buf_addf(b, "# HELP ps5_network_info Network interfaces with an IPv4 address.\n# TYPE ps5_network_info gauge\n");
+	for (struct ifaddrs* a = list; a; a = a->ifa_next) {
+		if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET) continue;
+		if (strncmp(a->ifa_name, "lo", 2) == 0) continue;
+		char address[INET_ADDRSTRLEN] = "";
+		inet_ntop(AF_INET, &((struct sockaddr_in*)a->ifa_addr)->sin_addr, address, sizeof(address));
+		char mac[18] = "";
+		for (struct ifaddrs* l = list; l; l = l->ifa_next) {
+			if (!l->ifa_addr || l->ifa_addr->sa_family != AF_LINK || strcmp(l->ifa_name, a->ifa_name) != 0) continue;
+			const struct sockaddr_dl* dl = (const struct sockaddr_dl*)l->ifa_addr;
+			if (dl->sdl_alen == 6) {
+				const unsigned char* m = (const unsigned char*)LLADDR(dl);
+				snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x", m[0], m[1], m[2], m[3], m[4], m[5]);
+			}
+		}
+		int mtu = 0;
+		if (sock >= 0) {
+			struct ifreq req;
+			memset(&req, 0, sizeof(req));
+			strncpy(req.ifr_name, a->ifa_name, sizeof(req.ifr_name) - 1);
+			if (ioctl(sock, SIOCGIFMTU, &req) == 0) mtu = req.ifr_mtu;
+		}
+		char name[64];
+		escape_label(a->ifa_name, name, sizeof(name));
+		buf_addf(b, "ps5_network_info{device=\"%s\",address=\"%s\",mac=\"%s\",mtu=\"%d\"} 1\n", name, address, mac, mtu);
+		samples++;
+	}
+	if (sock >= 0) close(sock);
+	freeifaddrs(list);
+	if (samples == 0) buf_rewind(b, mark);
+	metrics_note_collector("network_info", samples > 0);
+}
+
 static int printable_name(const char* s, size_t n)
 {
 	size_t i = 0;
@@ -254,6 +354,7 @@ static void processes(Buf* b)
 	buf_addf(b, "# HELP ps5_processes Number of processes.\n# TYPE ps5_processes gauge\nps5_processes %lu\n", count);
 	static struct proc_agg agg[MAX_PROC_NAMES];
 	int nagg = 0;
+	char title[16] = "";
 	const long pagesize = 16384; /* PS5 page size; getpagesize() is unavailable to payloads */
 	for (unsigned long i = 0; i < count; i++) {
 		const struct kinfo_proc* k = (const struct kinfo_proc*)(buf + i * stride);
@@ -270,6 +371,17 @@ static void processes(Buf* b)
 			agg[slot].cpu_seconds = 0;
 			agg[slot].resident = 0;
 			agg[slot].count = 0;
+		}
+		/* A game runs as eboot.bin; its app info holds the title ID at 0x10. */
+		if (title[0] == 0 && strcmp(name, "eboot.bin") == 0) {
+			unsigned char app[128];
+			memset(app, 0, sizeof(app));
+			int (*app_info)(int, void*) = OPTIONAL(int (*)(int, void*), sceKernelGetAppInfo);
+			if (app_info && app_info(k->ki_pid, app) == 0) {
+				memcpy(title, app + 0x10, 9);
+				title[9] = 0;
+				if (!printable_name(title, 9)) title[0] = 0;
+			}
 		}
 		agg[slot].cpu_seconds += (double)k->ki_runtime / 1e6;
 		agg[slot].resident += (unsigned long long)(k->ki_rssize < 0 ? 0 : k->ki_rssize) * (unsigned long long)pagesize;
@@ -289,6 +401,10 @@ static void processes(Buf* b)
 	}
 	metrics_note_collector("processes", 1);
 	metrics_note_collector("process_details", 1);
+	char esc[32];
+	escape_label(title, esc, sizeof(esc));
+	buf_addf(b, "# HELP ps5_game_running Whether a game runs (eboot.bin).\n# TYPE ps5_game_running gauge\nps5_game_running %d\n", title[0] != 0);
+	if (title[0]) buf_addf(b, "# HELP ps5_game_info The running game's title ID.\n# TYPE ps5_game_info gauge\nps5_game_info{title_id=\"%s\"} 1\n", esc);
 }
 
 static void info(Buf* b)
@@ -326,8 +442,10 @@ void metrics_system(Buf* b)
 	cpu_frequency(b);
 	uptime(b);
 	direct_memory(b);
+	memory(b);
 	filesystems(b);
 	network(b);
+	network_info(b);
 	processes(b);
 }
 

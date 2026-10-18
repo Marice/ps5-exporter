@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "../src/buf.h"
+#include "../src/optional.h"
 #include "../src/sensors.h"
 #include "../src/shadowmount.h"
 
@@ -25,24 +26,67 @@ static void ok(const char* what, int condition)
 
 int g_fan_rc = 0;
 uint16_t g_duty = 512;
-int g_cpu_rc = 0, g_cores = 8, g_core_val = 42;
 int g_pow_rc = 0;
-uint64_t g_pow = 45000;
+/* 8 rails of {mW, mV, mA}: rail r draws (r + 1) W at 1 V, rail 7 is zero. */
+uint32_t g_rails[32];
+int g_clock_rc = 0;
+uint32_t g_gpu_mhz = 2150;
+int g_core_mhz = 3200;
+uint8_t g_usb = 1, g_bd = 0;
 int g_time_rc = 0, g_cycles_rc = 0;
 uint64_t g_time = 360000, g_cycles = 420;
+int g_missing; /* every optional function is "not exported" */
 
-int sceKernelGetCurrentFanDuty(uint16_t* duty, uint64_t* chassis) { *duty = g_duty; *chassis = 1; return g_fan_rc; }
-int sceKernelGetCpuUsageAll(int* per_core, int* count)
+static int fake_fan(uint16_t* duty, uint64_t* chassis) { *duty = g_duty; *chassis = 1; return g_fan_rc; }
+static int fake_power(void* out)
 {
-	int n = g_cores > 32 ? 32 : g_cores;
-	for (int i = 0; i < n; i++) per_core[i] = g_core_val;
-	*count = g_cores;
-	return g_cpu_rc;
+	/* The kernel writes the whole block, whatever the caller expects. */
+	memcpy(out, g_rails, 0x70);
+	return g_pow_rc;
 }
-int sceKernelGetSocPowerConsumption(uint64_t* out, double r) { (void)r; out[0] = g_pow; return g_pow_rc; }
-int sceKernelIccGetPowerNumberOfBootShutdown(uint64_t* out) { *out = g_cycles; return g_cycles_rc; }
-int sceKernelIccGetPowerOperatingTime(uint64_t* out) { *out = g_time; return g_time_rc; }
-int sceKernelGetBasicProductShape(int* out) { *out = 1; return 0; }
+static int fake_soc_clock(uint32_t* out)
+{
+	for (int i = 0; i < 26; i++) out[i] = 500;
+	out[20] = g_gpu_mhz;
+	return g_clock_rc;
+}
+static int fake_core_clock(int* out)
+{
+	for (int i = 0; i < 8; i++) out[i] = g_core_mhz;
+	return g_clock_rc;
+}
+static int fake_usb(uint8_t* out) { *out = g_usb; return 0; }
+static int fake_bd(uint8_t* out) { *out = g_bd; return 0; }
+static int fake_cycles(uint64_t* out) { *out = g_cycles; return g_cycles_rc; }
+static int fake_time(uint64_t* out) { *out = g_time; return g_time_rc; }
+
+void* optional_symbol(const char* name)
+{
+	if (g_missing) return NULL;
+	static const struct { const char* name; void* fn; } table[] = {
+		{ "sceKernelGetCurrentFanDuty", (void*)fake_fan },
+		{ "sceKernelGetSocPowerConsumption", (void*)fake_power },
+		{ "sceKernelGetSocClock", (void*)fake_soc_clock },
+		{ "sceKernelGetCpuCoreClock", (void*)fake_core_clock },
+		{ "sceKernelIccGetUSBPowerState", (void*)fake_usb },
+		{ "sceKernelIccGetBDPowerState", (void*)fake_bd },
+		{ "sceKernelIccGetPowerNumberOfBootShutdown", (void*)fake_cycles },
+		{ "sceKernelIccGetPowerOperatingTime", (void*)fake_time },
+	};
+	for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++)
+		if (strcmp(table[i].name, name) == 0) return table[i].fn;
+	return NULL;
+}
+
+static void reset_rails(void)
+{
+	memset(g_rails, 0, sizeof(g_rails));
+	for (int r = 0; r < 7; r++) {
+		g_rails[r * 3] = (uint32_t)(r + 1) * 1000;
+		g_rails[r * 3 + 1] = 1000;
+		g_rails[r * 3 + 2] = (uint32_t)(r + 1) * 1000;
+	}
+}
 
 /* ------------------------------------------------------------ fake HTTP */
 
@@ -121,6 +165,7 @@ static int sensors_contains(const char* needle)
 
 static void test_sensors(void)
 {
+	reset_rails();
 	g_duty = 512;
 	ok("fan: 512/1024 becomes ratio 0.5", sensors_contains("ps5_fan_duty_ratio 0.5000\n"));
 	g_duty = 2000;
@@ -130,26 +175,41 @@ static void test_sensors(void)
 	ok("fan: failed call dropped", !sensors_contains("ps5_fan_duty_ratio"));
 	g_fan_rc = 0;
 
-	ok("cpu: per core ratio", sensors_contains("ps5_cpu_usage_ratio{core=\"7\"} 0.42\n"));
-	ok("cpu: no aggregate inside the family", !sensors_contains("core=\"all\""));
-	g_core_val = 250;
-	ok("cpu: bogus value drops the family", !sensors_contains("ps5_cpu_usage_ratio{core="));
-	g_core_val = 42;
-	g_cores = 99;
-	ok("cpu: bogus core count dropped", !sensors_contains("ps5_cpu_cores"));
-	g_cores = 8;
+	ok("power: rail 0 is the GPU core", sensors_contains("ps5_power_rail_watts{rail=\"0\",name=\"gpu_core\"} 1.000\n"));
+	ok("power: volts per rail", sensors_contains("ps5_power_rail_volts{rail=\"2\",name=\"cpu_soc\"} 1.000\n"));
+	ok("power: amperes per rail", sensors_contains("ps5_power_rail_amperes{rail=\"6\",name=\"memory_ch45\"} 7.000\n"));
+	ok("power: a zero rail is left out", !sensors_contains("rail=\"7\""));
+	ok("power: total is the sum (1+..+7 W)", sensors_contains("ps5_power_watts 28.000\n"));
+	ok("power: v0.2.0 raw value kept", sensors_contains("ps5_soc_power_raw_value 4294967297000\n"));
+	g_rails[3] = 900000;
+	ok("power: implausible rail dropped", !sensors_contains("rail=\"1\""));
+	ok("power: ... and left out of the total", sensors_contains("ps5_power_watts 26.000\n"));
+	reset_rails();
+	g_pow_rc = -1;
+	ok("power: failed call dropped", !sensors_contains("ps5_power_watts"));
+	g_pow_rc = 0;
 
-	ok("power: plausible value becomes watts", sensors_contains("ps5_soc_power_watts 45.00\n"));
-	g_pow = 7;
-	ok("power: implausible value has no watts", !sensors_contains("ps5_soc_power_watts"));
-	ok("power: raw value still reported", sensors_contains("ps5_soc_power_raw_value 7\n"));
-	g_pow = 45000;
+	ok("clocks: GPU clock in hertz", sensors_contains("ps5_soc_clock_hertz{domain=\"20\",name=\"gpu\"} 2150000000\n"));
+	ok("clocks: per CPU core", sensors_contains("ps5_cpu_core_clock_hertz{core=\"7\"} 3200000000\n"));
+	g_gpu_mhz = 50000;
+	ok("clocks: implausible domain dropped", !sensors_contains("domain=\"20\""));
+	g_gpu_mhz = 2150;
+
+	ok("device power: USB on", sensors_contains("ps5_usb_power_on 1\n"));
+	ok("device power: disc drive off", sensors_contains("ps5_disc_drive_power_on 0\n"));
+	g_usb = 7;
+	ok("device power: unknown state dropped", !sensors_contains("ps5_usb_power_on"));
+	g_usb = 1;
 
 	ok("lifetime: operating time", sensors_contains("ps5_power_operating_seconds_total 360000\n"));
 	ok("lifetime: power cycles", sensors_contains("ps5_power_cycles_total 420\n"));
 	g_time = (uint64_t)200 * 365 * 24 * 3600;
 	ok("lifetime: implausible runtime dropped", !sensors_contains("ps5_power_operating_seconds_total"));
 	g_time = 360000;
+
+	g_missing = 1;
+	ok("missing functions: no metrics, no crash", !sensors_contains("ps5_power_watts") && !sensors_contains("ps5_fan"));
+	g_missing = 0;
 }
 
 /* ---------------------------------------------------- shadowmount tests */

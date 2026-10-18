@@ -858,7 +858,7 @@
     {
       "id": 23,
       "type": "timeseries",
-      "title": "SoC power",
+      "title": "Power",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -875,9 +875,19 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "ps5_soc_power_watts{job=~\"$job\"}",
-          "legendFormat": "SoC",
+          "expr": "ps5_power_watts{job=~\"$job\"}",
+          "legendFormat": "Total",
           "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "ps5_power_rail_watts{job=~\"$job\",name=\"gpu_core\"}",
+          "legendFormat": "GPU",
+          "refId": "B",
           "range": true
         }
       ],
@@ -898,15 +908,11 @@
             "fillOpacity": 20,
             "showPoints": "never"
           },
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "orange"
-          },
-          "noValue": "Not available on this firmware"
+          "noValue": "no data"
         },
         "overrides": []
       },
-      "description": "Assumes the raw kernel value is milliwatts; unconfirmed."
+      "description": "Total: the sum of the 8 rails of sceKernelGetSocPowerConsumption (SoC and memory), not checked against a wall meter. GPU: rail 0."
     },
     {
       "id": 10,
@@ -1565,7 +1571,7 @@
               }
             ]
           },
-          "noValue": "n/a on 13.60"
+          "noValue": "not available"
         },
         "overrides": []
       },
@@ -1619,7 +1625,7 @@
               }
             ]
           },
-          "noValue": "n/a on 13.60"
+          "noValue": "not available"
         },
         "overrides": []
       }
@@ -1736,6 +1742,180 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "FPS",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "range": true,
+          "expr": "ps5_fps{job=~\"$job\"}",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "description": "Frames per second the display shows while a game runs, from the display controller's flip counter."
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "GPU and memory clocks",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 52,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "range": true,
+          "expr": "ps5_soc_clock_hertz{job=~\"$job\",name=\"gpu\"}",
+          "legendFormat": "GPU"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "B",
+          "range": true,
+          "expr": "ps5_soc_clock_hertz{job=~\"$job\",name=\"memory\"}",
+          "legendFormat": "Memory"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "C",
+          "range": true,
+          "expr": "ps5_soc_clock_hertz{job=~\"$job\",name=\"fabric\"}",
+          "legendFormat": "Fabric"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "hertz",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "description": "Clock domains 20 (GPU), 23 and 24 of sceKernelGetSocClock."
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Power per rail",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 52,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "range": true,
+          "expr": "ps5_power_rail_watts{job=~\"$job\"}",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "noValue": "no data"
+        },
+        "overrides": []
+      },
+      "description": "The 8 rails of sceKernelGetSocPowerConsumption, stacked. Rail names after drakmor/ps5-hwinfo; rail 0 is the GPU core."
     }
   ],
   "refresh": "30s",
@@ -1793,6 +1973,6 @@
   "timezone": "browser",
   "title": "PS5",
   "uid": "ps5-exporter",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }

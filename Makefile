@@ -5,7 +5,7 @@ TITLE := ps5-exporter
 ELF   := $(TITLE).elf
 
 # One source of truth for the version; also baked into ps5_exporter_build_info.
-VERSION := 0.2.0
+VERSION := 0.3.0
 
 # The host tests build with the system compiler, so only the console targets
 # need the SDK. Those depend on require-sdk and fail with a clear message.
@@ -16,9 +16,9 @@ endif
 CFLAGS := -Wall -Wextra -O2 -std=c11 -DEXPORTER_VERSION='"$(VERSION)"'
 # -lkernel_sys is a link flag, not a compile flag: it provides the model name
 # and the fan, CPU usage and sensor calls.
-LDLIBS := -lkernel_sys
+LDLIBS := -lkernel_sys -lpthread
 
-SRCS := src/main.c src/buf.c src/http.c src/metrics.c src/sensors.c src/shadowmount.c
+SRCS := src/main.c src/buf.c src/http.c src/metrics.c src/sensors.c src/shadowmount.c src/fps.c src/cpuload.c src/optional.c
 HDRS := $(wildcard src/*.h)
 
 HOST_CC ?= gcc

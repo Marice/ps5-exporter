@@ -9,9 +9,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "buf.h"
+#include "cpuload.h"
+#include "fps.h"
 #include "http.h"
 #include "metrics.h"
 #include "sensors.h"
@@ -24,6 +27,10 @@
 #define EXPORTER_VERSION "0.0.0-dev"
 #endif
 #define EXPORTER_PORT 9100
+
+/* The version as a marker in the file itself, so an app can tell an older copy (in ps5-autoloader's folder, say)
+   from its own without running it. Kept although nothing here reads it. */
+__attribute__((used)) static const volatile char version_marker[] = "PS5EXPORTER_VER:" EXPORTER_VERSION;
 
 int sceKernelSendNotificationRequest(uint32_t device, void* request, size_t size, int blocking);
 
@@ -52,9 +59,21 @@ static int handle(const char* path, char* body, size_t cap, int from_loopback)
 		/* Collect first, then self-metrics, so collector results are known.
 		   The buffer is written in two parts: metrics_self goes last but
 		   must appear as its own families, which it does. */
-		metrics_system(&b);
-		metrics_sensors(&b);
-		metrics_shadowmount(&b);
+		/* Time per group, so a slow one is visible. */
+		static const char* const groups[] = { "system", "sensors", "cpu_load", "fps", "shadowmount" };
+		void (*const collect[])(Buf*) = { metrics_system, metrics_sensors, metrics_cpuload, metrics_fps, metrics_shadowmount };
+		double took[5], total = 0.0;
+		for (int g = 0; g < 5; g++) {
+			struct timespec started, ended;
+			clock_gettime(CLOCK_MONOTONIC, &started);
+			collect[g](&b);
+			clock_gettime(CLOCK_MONOTONIC, &ended);
+			took[g] = (ended.tv_sec - started.tv_sec) + (ended.tv_nsec - started.tv_nsec) / 1e9;
+			total += took[g];
+		}
+		buf_addf(&b, "# HELP ps5_exporter_scrape_seconds Time this scrape took to collect.\n# TYPE ps5_exporter_scrape_seconds gauge\nps5_exporter_scrape_seconds %.4f\n", total);
+		buf_addf(&b, "# HELP ps5_exporter_collect_seconds Time per group of collectors in this scrape.\n# TYPE ps5_exporter_collect_seconds gauge\n");
+		for (int g = 0; g < 5; g++) buf_addf(&b, "ps5_exporter_collect_seconds{group=\"%s\"} %.4f\n", groups[g], took[g]);
 		metrics_self(&b, g_scrapes, EXPORTER_VERSION);
 		if (b.truncated) {
 			/* Partial output would be a misleading scrape: fail loudly so
@@ -116,6 +135,8 @@ int main(int argc, char** argv)
 		if (p > 0 && p < 65536 && strspn(argv[i], "0123456789") == strlen(argv[i])) g_port = p;
 	}
 	char msg[128];
+	cpuload_start();
+	fps_start();
 	snprintf(msg, sizeof(msg), "ps5-exporter %s: metrics on port %d", EXPORTER_VERSION, g_port);
 	fprintf(stderr, "%s\n", msg);
 	notify(msg);

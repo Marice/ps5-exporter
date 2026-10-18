@@ -8,6 +8,12 @@ What it reports:
 
 - CPU and SoC temperatures (all sensors the kernel answers for; 17 on a
   CFI-7121), fan speed and the CPU frequency
+- power: the 8 rails of the SoC and memory (watts, volts, amperes) and their
+  sum; the GPU, memory and fabric clocks and the clock of each CPU core;
+  CPU load per logical CPU
+- the running game (title ID) and its frames per second
+- swap, wired memory and the page tables; address, MAC and MTU per network
+  interface; whether the USB ports and the disc drive have power
 - the direct memory pool (games and GPU) and its largest free block
 - uptime and boot time, model and system software version
 - filesystems (size and free space per mount)
@@ -69,9 +75,20 @@ source, and select the scrape job (`ps5` by default).
 | `ps5_temperature_celsius` | `sensor` (cpu, soc0..socN) | Temperatures the console reports; every SoC sensor index that answers |
 | `ps5_cpu_frequency_hertz` | | CPU frequency |
 | `ps5_fan_duty_ratio` | | Fan duty cycle, 0 to 1 |
-| `ps5_cpu_usage_ratio` | `core` | CPU usage per core, 0 to 1. Use `avg()` for the overall load |
-| `ps5_cpu_cores` | | Cores the kernel reports usage for |
-| `ps5_soc_power_watts`, `ps5_soc_power_raw_value` | | SoC power draw (the unit of the raw value is unconfirmed) |
+| `ps5_cpu_usage_ratio` | `core` (0-15) | CPU usage per logical CPU, 0 to 1. Use `avg()` for the overall load |
+| `ps5_cpu_cores` | | Logical CPUs with a usage figure |
+| `ps5_power_rail_watts`, `ps5_power_rail_volts`, `ps5_power_rail_amperes` | `rail` (0-7), `name` | Power, voltage and current per rail. Rail 0 (`gpu_core`) follows the GPU; the other names (`gpu_io`, `cpu_soc`, `cpu_io`, `memory_ch01`..`memory_ch67`) are the community's |
+| `ps5_power_watts` | | Sum of the rails: the SoC and its memory. Not checked against a wall meter |
+| `ps5_soc_power_raw_value` | | Deprecated: the first 64-bit word of the power call (rail 0's mW, then its mV), kept for readers of v0.2.0 |
+| `ps5_soc_clock_hertz` | `domain` (0-25), `name` (`gpu`, `memory`, `fabric` or empty) | SoC clock domains |
+| `ps5_cpu_core_clock_hertz` | `core` | Clock per CPU core |
+| `ps5_fps` | | Frames per second the display shows, while a game runs |
+| `ps5_game_running`, `ps5_game_info` | `title_id` | Whether a game runs, and its title ID |
+| `ps5_swap_size_bytes`, `ps5_swap_free_bytes` | | Swap |
+| `ps5_memory_wired_bytes` | `vm` | Wired memory per VM (0 is the system) |
+| `ps5_page_tables` | `user` (cpu, gpu), `state` (total, free) | Page tables, as ShellCore counts them |
+| `ps5_network_info` | `device`, `address`, `mac`, `mtu` | Interfaces with an IPv4 address |
+| `ps5_usb_power_on`, `ps5_disc_drive_power_on` | | Whether the USB ports and the disc drive have power |
 | `ps5_power_operating_seconds_total`, `ps5_power_cycles_total` | | Hours powered on and power cycles since the console was new |
 | `ps5_uptime_seconds`, `ps5_boot_time_seconds` | | Uptime and boot time |
 | `ps5_info` | `model`, `firmware`, `system_version` | Model, the kernel's firmware version (`13.60`) and the version the system API reports |
@@ -87,6 +104,7 @@ source, and select the scrape job (`ps5` by default).
 | `ps5_shadowmount_game_installed`, `ps5_shadowmount_game_source_available` | `title_id` | Registration and source state |
 | `ps5_shadowmount_games_cache_age_seconds` | | Age of the cached game list |
 | `ps5_exporter_scrapes_total`, `ps5_exporter_build_info` | | Exporter itself |
+| `ps5_exporter_scrape_seconds`, `ps5_exporter_collect_seconds` | `group` | How long a scrape took, in all and per group of collectors |
 | `ps5_exporter_collector_success` | `collector` | 1 when that collector produced data in the last scrape |
 
 Process metrics are aggregated per executable name rather than per pid: a
@@ -140,16 +158,25 @@ and the libkernel temperature calls the SDK's `hwinfo` sample uses.
 
 ## What works on a console, and what does not
 
-Verified on a CFI-7121 running firmware 13.60, as a payload under the
-Payload Manager autoloader:
+Verified on a PS5 Pro (CFI-7121) running firmware 13.60, as a payload under
+the autoloader. Other models and firmware: likely, not verified. The sources
+below saw the same calls work on a PS5 Slim on 13.60 and a Pro on 9.60.
 
 | Metric | Status |
 | --- | --- |
 | Temperatures (17 sensors), CPU frequency, uptime, model, firmware | works |
 | Fan speed (`ps5_fan_duty_ratio`) | works |
+| Power rails and total, clocks, CPU load per logical CPU | works (since 0.3.0) |
+| Running game and FPS | works (since 0.3.0): 60 FPS in a 60 FPS game |
+| Swap, wired memory, page tables, network info, USB and disc drive power | works (since 0.3.0) |
 | Filesystems, direct memory, ShadowMount storage and games | works |
 | Per-process CPU and memory | works, see the record size note below |
-| Per-core CPU usage, SoC power, lifetime counters | the console refuses these calls from a payload; the metrics are left out and `ps5_exporter_collector_success` reports 0 |
+| Lifetime counters | the calls answer without a usable value; left out |
+
+A function this firmware does not export costs only its metric: the getters
+beyond the SDK's own samples are looked up when they are first called, not
+when the payload loads (`src/optional.c`). `ps5_exporter_collector_success`
+shows which collector produced nothing.
 
 The process table records are 1096 bytes on this firmware while the SDK
 header describes 1088, so the exporter takes the record size from the
@@ -159,27 +186,48 @@ details silently disappearing.
 
 ## How the hardware values are read
 
-Fan, per-core CPU usage, SoC power and the lifetime counters come from
-libkernel functions that are not in the SDK headers. Their signatures come
-from two homebrew projects that call them on real consoles:
-[drakmor/fan_target](https://github.com/drakmor/fan_target) (the
-ShadowMountPlus author) for `sceKernelGetCurrentFanDuty(uint16_t*, uint64_t*)`
-with its 0..1024 scale, and
-[aloksaurabh/elf-arsenal](https://github.com/aloksaurabh/elf-arsenal) for
-`sceKernelGetCpuUsageAll(int*, int*)` and `sceKernelGetSocPowerConsumption`.
+The hardware values come from libkernel functions that are not in the SDK
+headers. They are ordinary library calls, not kernel memory reads at fixed
+offsets. Every value is range-checked before it is published.
 
-These are ordinary library calls, not kernel memory reads at fixed offsets,
-so they are not tied to one firmware version. Every value is range-checked
-before it is published: a console that refuses a call, or answers something
-implausible, simply leaves that metric out.
+- **Fan:** `sceKernelGetCurrentFanDuty(uint16_t*, uint64_t*)`, 0..1024, after
+  [drakmor/fan_target](https://github.com/drakmor/fan_target).
+- **Power:** `sceKernelGetSocPowerConsumption(void*)` takes one argument and
+  always writes a 0x70-byte block: 8 rails of {mW, mV, mA}, then auxiliary
+  words. Layout and names after
+  [drakmor/ps5-hwinfo](https://github.com/drakmor/ps5-hwinfo). On the console,
+  P = V × I holds for every rail, rail 0 rises from 1.4 W in the menu to about
+  96 W in a game, and the sum was 220 W in a racing game (Sony gives 215 W at
+  the wall for a Pro, as an average over three games). Tools that read only
+  the first word show rail 0, the GPU core.
+  [phantomptr/ps5upload](https://github.com/phantomptr/ps5upload) records hangs
+  from a buffer smaller than the block; the exporter passes 128 bytes.
+- **Clocks:** `sceKernelGetSocClock(uint32_t*)` (26 domains, MHz; domain 20
+  is the GPU: 900 MHz in the menu, about 2150 MHz in a game) and
+  `sceKernelGetCpuCoreClock(int*)`, after drakmor/ps5-hwinfo.
+- **CPU load:** each logical CPU's idle thread (`SceIdleCpuN`) in the thread
+  list of `sceKernelGetCpuUsage`; load = 1 - idle time / wall time, sampled
+  every 2 seconds. After drakmor/ps5-hwinfo and
+  [erickdavestech/ps5-hud-dualsense-overlay](https://github.com/erickdavestech/ps5-hud-dualsense-overlay).
+  `sceKernelGetCpuUsageAll`, which 0.2.0 used, answers `0x80020016` on 13.60.
+- **FPS:** the display controller's flip counter, ioctl `0x80308217` on
+  `/dev/dce`, as
+  [Common FPS for PS5](https://github.com/porhe911/Common-FPS-for-PS5)
+  reads it and ps5-hud-dualsense-overlay documents it. The kernel writes 128
+  bytes; they go to a mapping with a guard page. Sampled once a second.
+- **Running game:** the process `eboot.bin`, its title ID from
+  `sceKernelGetAppInfo` at offset 0x10.
+- **Memory:** `vm.swap_*` and `vm.stats.vm0/vm10.v_wire_count`, and
+  `get_page_table_stats`, after drakmor/ps5-hwinfo; the `vm.stats.vm.*`
+  totals are refused for payloads on 13.60.
+- **USB and disc drive power:** `sceKernelIccGetUSBPowerState` and
+  `sceKernelIccGetBDPowerState`, after drakmor/ps5-hwinfo.
 
 ## Not yet
 
-- GPU load and FPS. etaHEN shows these in its overlay, but they come from
-  kernel memory with firmware-specific offsets, which would tie the exporter
-  to one firmware.
-- Memory: the `hw.physmem` and `hw.usermem` sysctls are refused for
-  payloads on 13.60.
+- GPU load: no system function reports it.
+- Total RAM in use: `hw.physmem`, `hw.usermem` and `vm.stats.vm.*` are
+  refused for payloads on 13.60.
 - Network counters: `getifaddrs` works, but the `if_data` layout in the SDK
   headers does not match what the kernel returns (the numbers come out far
   too small). The code is there behind `-DEXPORTER_NETWORK` for whoever

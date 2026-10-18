@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-#define MAX_COLLECTORS 12
+#define MAX_COLLECTORS 24
 static struct { const char* name; int ok; } g_collectors[MAX_COLLECTORS];
 static int g_collector_count;
 
