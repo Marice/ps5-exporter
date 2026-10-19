@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-10-19
+
+### Changed
+- The process is named `ps5-exporter.elf`. Started through an ELF loader's port it showed as `payload.elf` in
+  process lists such as pldmgr's and PayLoader's.
+
 ## [v0.3.0] - 2026-10-18
 
 ### Added

@@ -118,8 +118,13 @@ static int handle(const char* path, char* body, size_t cap, int from_loopback)
 
 static int g_port = EXPORTER_PORT;
 
+/* In libkernel. The ELF loader names a payload sent to it "payload.elf"; this name is what process lists
+   (pldmgr, PayLoader) show instead. At most 19 characters, ending in ".elf" so they count it as a payload. */
+int sceKernelSetProcessName(const char* name);
+
 int main(int argc, char** argv)
 {
+	sceKernelSetProcessName("ps5-exporter.elf");
 	/* Optional port: first argument or EXPORTER_PORT in the environment
 	   (handy to run a test build next to the autoloaded one). */
 	const char* env_port = getenv("EXPORTER_PORT");

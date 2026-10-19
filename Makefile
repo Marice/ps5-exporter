@@ -5,7 +5,7 @@ TITLE := ps5-exporter
 ELF   := $(TITLE).elf
 
 # One source of truth for the version; also baked into ps5_exporter_build_info.
-VERSION := 0.3.0
+VERSION := 0.3.1
 
 # The host tests build with the system compiler, so only the console targets
 # need the SDK. Those depend on require-sdk and fail with a clear message.
