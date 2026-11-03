@@ -1,3 +1,5 @@
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H5L629ZHNX)
+
 # ps5-exporter
 
 A Prometheus exporter for a jailbroken PS5. It runs as a payload next to
